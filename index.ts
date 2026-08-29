@@ -235,8 +235,12 @@ function renderFooter(
   const cacheGroup = `${cacheRead}   ${cacheWrite}`;
   const stats = [trafficGroup, cacheGroup, cost, timeGroup].filter(Boolean).join(pipe);
 
-  // 项目名 + 会话名：多项目/多会话时的身份前缀（可选链防旧版 pi 缺方法时 render 崩溃）
-  const project = CONFIG.showProject ? formatProjectName(ctx.sessionManager.getCwd?.() ?? "") : "";
+  // 项目名 + 会话名：多项目/多会话时的身份前缀（可选链防旧版 pi 缺方法时 render 崩溃）。
+  // cwd 为用户主目录时显示 ~，避免把用户名当项目名展示。
+  const home = (process.env.HOME ?? process.env.USERPROFILE ?? "").replace(/[\\/]+$/, "");
+  const rawCwd = ctx.sessionManager.getCwd?.() ?? "";
+  const cwd = home && rawCwd.replace(/[\\/]+$/, "") === home ? "~" : rawCwd;
+  const project = CONFIG.showProject ? formatProjectName(cwd) : "";
   const sessionName = project && CONFIG.showSessionName ? ctx.sessionManager.getSessionName?.() : undefined;
   let identityLeft = model;
   if (project) {
