@@ -2,19 +2,28 @@ export const LEGEND_LINES = [
   "指标与符号图例",
   "↓ 输入: 本会话送往模型的请求 token；↑ 输出: 模型生成的 token。",
   "↻ 缓存读: 已复用的提示词缓存 token 及命中率；✎ 缓存写: 新写入缓存的 token。",
-  "费用: 会话累计估算成本；⎔: 提示词上下文占用比例与窗口 token（已用/上限）。",
+  "费用($): 会话累计估算成本；⎔: 提示词上下文占用比例与窗口 token（已用/上限）。",
   "模型: 图标 provider › model（图标按模型家族匹配）；✦ 推理: 思考等级；⎇ 分支: 当前 Git 分支。",
   "⇄ MCP: 已连接/启用的 MCP 服务器数（未满黄色、全未连灰色：懒连接的服务器首次使用前不在线属正常）；LSP: 活动中的语言服务器，✗ 标记失败，无活动不显示。",
   "项目: 当前完整路径（上级目录弱化、主目录缩写为 ~；含会话名，若已设置）；◷: 会话活跃跨度、交互轮次与最近一次响应的流式速率（tok/s）。",
   "关闭图例: /signal-footer hide",
 ];
 
-export function getModelIcon(modelId = "", provider = "") {
+export type ProjectPathParts = { parent: string; name: string };
+export type ContextBarParts = { fill: string; track: string; unknown: boolean };
+export type LspChip = { failed: boolean; names: string };
+export type McpStatus = { connected: number; enabled: number };
+
+/**
+ * 图标按「provider/model」子串匹配模型家族。子串匹配是有意的（gpt4、chatgpt-*、
+ * o1-pro 等真实变体依赖它）；OpenAI 宽匹配组放在所有命名家族之后，避免他牌
+ * -o1/-o3 后缀模型误挂 OpenAI 图标。
+ */
+export function getModelIcon(modelId = "", provider = ""): string {
   const combined = `${provider}/${modelId}`.toLowerCase();
   if (combined.includes("grok") || combined.includes("xai")) return "𝕏";
   if (combined.includes("glm") || combined.includes("zhipu") || combined.includes("chatglm")) return "𝐙";
   if (combined.includes("claude") || combined.includes("anthropic")) return "✻";
-  if (combined.includes("gpt") || combined.includes("o1") || combined.includes("o3") || combined.includes("openai") || combined.includes("chatgpt")) return "⬢";
   if (combined.includes("gemini") || combined.includes("gemma") || combined.includes("google")) return "✧";
   if (combined.includes("deepseek") || combined.includes("deep-seek")) return "◎";
   if (combined.includes("qwen") || combined.includes("qwq") || combined.includes("tongyi")) return "𝐐";
@@ -24,11 +33,13 @@ export function getModelIcon(modelId = "", provider = "") {
   if (combined.includes("doubao") || combined.includes("bytedance")) return "𝐃";
   if (combined.includes("yi-") || combined.includes("01-ai") || combined.includes("lingyi")) return "①";
   if (combined.includes("minimax") || combined.includes("abab")) return "⬡";
+  if (combined.includes("gpt") || combined.includes("o1") || combined.includes("o3") || combined.includes("openai") || combined.includes("chatgpt")) return "⬢";
   if (combined.includes("ollama") || combined.includes("local")) return "⌂";
   return "◈";
 }
 
-export function formatTokens(count) {
+/** token 数压缩为稳定后缀：999 → "999"，1250 → "1.3k"，32_000 → "32k"，5_100_000 → "5.1M"。 */
+export function formatTokens(count: number): string {
   const value = Number.isFinite(count) && count > 0 ? count : 0;
 
   if (value < 1_000) return Math.round(value).toString();
@@ -38,12 +49,12 @@ export function formatTokens(count) {
   return `${Math.round(value / 1_000_000)}M`;
 }
 
-export function formatCost(cost) {
+export function formatCost(cost: number): string {
   const value = Number.isFinite(cost) && cost > 0 ? cost : 0;
   return `$${value.toFixed(3)}`;
 }
 
-export function formatCacheHitRatio(read, write) {
+export function formatCacheHitRatio(read: number, write: number): string {
   const r = Number.isFinite(read) && read > 0 ? read : 0;
   const w = Number.isFinite(write) && write > 0 ? write : 0;
   const total = r + w;
@@ -51,7 +62,7 @@ export function formatCacheHitRatio(read, write) {
   return `${Math.round((r / total) * 100)}%`;
 }
 
-export function formatDuration(ms) {
+export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "0m";
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 60) return `${minutes}m`;
@@ -59,22 +70,25 @@ export function formatDuration(ms) {
   return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-/** 会话平均生成速率：累计输出 token ÷ 累计生成墙钟时间。数据不足返回空串。 */
-export function formatSpeed(tokens, ms) {
+/** 最近一次响应的生成速率：输出 token ÷ 首 token 到响应结束的墙钟时间。 */
+export function formatSpeed(tokens: number, ms: number): string {
   if (!Number.isFinite(tokens) || !Number.isFinite(ms) || tokens <= 0 || ms <= 0) return "";
   return `${Math.round(tokens / (ms / 1000))} tok/s`;
 }
 
 /** 项目槽位：完整路径，主目录缩写为 ~。返回弱化的上级目录与加粗的末级目录名。 */
-export function splitProjectPath(cwd = "", home = "") {
-  const normalize = (p) => String(p ?? "").replace(/[\\/]+$/, "");
+export function splitProjectPath(cwd = "", home = ""): ProjectPathParts {
+  const normalize = (p: unknown): string => String(p ?? "").replace(/[\\/]+$/, "");
   const c = normalize(cwd);
   const h = normalize(home);
   if (!c) return { parent: "", name: "" };
 
   let display = c;
-  if (h && c === h) return { parent: "", name: "~" };
-  if (h && c.startsWith(h) && (c[h.length] === "\\" || c[h.length] === "/")) {
+  const windowsPath = /^[A-Za-z]:[\\/]/.test(c) || /^[A-Za-z]:[\\/]/.test(h);
+  const comparableCwd = windowsPath ? c.toLowerCase() : c;
+  const comparableHome = windowsPath ? h.toLowerCase() : h;
+  if (h && comparableCwd === comparableHome) return { parent: "", name: "~" };
+  if (h && comparableCwd.startsWith(comparableHome) && (c[h.length] === "\\" || c[h.length] === "/")) {
     display = `~${c.slice(h.length)}`;
   }
 
@@ -88,20 +102,22 @@ export function splitProjectPath(cwd = "", home = "") {
 const CONTEXT_BAR_FILLED = "━";
 const CONTEXT_BAR_EMPTY = "─";
 
-function normalizeContextPercent(percent) {
-  if (!Number.isFinite(percent)) return undefined;
+export function normalizeContextPercent(percent: unknown): number | undefined {
+  if (typeof percent !== "number" || !Number.isFinite(percent)) return undefined;
   return Math.min(100, Math.max(0, percent));
 }
 
-export function formatContext(tokens, contextWindow) {
-  const used = Number.isFinite(tokens) && tokens >= 0 ? Math.round(tokens) : undefined;
-  const window = Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : undefined;
+export function formatContext(tokens: number | null | undefined, contextWindow: number | null | undefined): string {
+  const used = typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0 ? Math.round(tokens) : undefined;
+  const window = typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
+    ? contextWindow
+    : undefined;
 
   return `${used === undefined ? "?" : formatTokens(used)}/${window === undefined ? "?" : formatTokens(window)}`;
 }
 
 /** 唯一的填充数学：返回已填充/剩余轨道字符串，供着色组装与纯文本输出共用。 */
-export function contextBarParts(percent, width) {
+export function contextBarParts(percent: unknown, width: number): ContextBarParts {
   const length = Number.isInteger(width) && width > 0 ? width : 1;
   const normalizedPercent = normalizeContextPercent(percent);
 
@@ -113,17 +129,18 @@ export function contextBarParts(percent, width) {
   return { fill: CONTEXT_BAR_FILLED.repeat(filled), track: CONTEXT_BAR_EMPTY.repeat(length - filled), unknown: false };
 }
 
-export function sanitizeStatusText(text) {
+export function sanitizeStatusText(text: unknown): string {
+  if (typeof text !== "string") return "";
   return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
 }
 
 /** 外部插件写入的状态自带 ANSI 着色，解析前先剥掉。 */
-export function stripAnsi(text) {
+export function stripAnsi(text: unknown): string {
   return String(text ?? "").replace(/\u001B\[[0-9;]*m/g, "");
 }
 
 /** 识别 pi-mcp-adapter 状态：compact "MCP 1/2" 或 full "🔌 MCP: N servers enabled (M connected)"。 */
-export function parseMcpStatus(text) {
+export function parseMcpStatus(text: unknown): McpStatus | undefined {
   const raw = stripAnsi(sanitizeStatusText(text));
   const compact = raw.match(/^MCP (\d+)\/(\d+)$/);
   if (compact) return { connected: Number(compact[1]), enabled: Number(compact[2]) };
@@ -136,10 +153,10 @@ export function parseMcpStatus(text) {
  * 识别 pi-lens 的 LSP 状态段："LSP Active: a, b" / "LSP Failed: x" / "LSP Inactive"，
  * Active 与 Failed 可能以 " · " 合并在同一条状态里。Inactive 返回空数组（无活动不显示）。
  */
-export function parseLspStatus(text) {
+export function parseLspStatus(text: unknown): LspChip[] | undefined {
   const raw = stripAnsi(sanitizeStatusText(text));
   if (raw === "LSP Inactive") return [];
-  const chips = [];
+  const chips: LspChip[] = [];
   for (const segment of raw.split(" · ")) {
     const match = segment.trim().match(/^LSP (Active|Failed): (.+)$/);
     if (!match) return undefined;
@@ -147,4 +164,3 @@ export function parseLspStatus(text) {
   }
   return chips;
 }
-

@@ -4,6 +4,15 @@
   "type": "module",
   "description": "A readable, responsive two-line status footer for Pi Coding Agent: model identity, token/cache/cost stats, adaptive context bar, session time and extension statuses.",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "format.ts",
+    "index.ts"
+  ],
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -12,11 +21,21 @@
     "tui"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "tsx --test test/format.test.mjs test/index.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run test && npm run typecheck",
+    "pack:check": "npm pack --dry-run"
   },
   "pi": {
     "extensions": [
       "./index.ts"
     ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@earendil-works/pi-tui": "^0.84.4",
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
   }
 }

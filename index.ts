@@ -14,8 +14,9 @@ import {
   parseLspStatus,
   sanitizeStatusText,
   contextBarParts,
+  normalizeContextPercent,
   splitProjectPath,
-} from "./format.js";
+} from "./format.ts";
 
 /** 字段开关：改这里即可定制 footer，无需动渲染逻辑。 */
 export const CONFIG = {
@@ -49,11 +50,20 @@ type UsageLike = {
 type UsageTotals = Required<Omit<UsageLike, "cost">> & { cost: number };
 
 type SessionStats = { firstTs: number; lastTs: number; turns: number };
+type SessionEntries = ReturnType<ExtensionContext["sessionManager"]["getEntries"]>;
+type SessionEntry = SessionEntries[number];
 
 // 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
-// （剔除 TTFT/排队），message_end 用精确 usage.output 收口。跨事件共享，模块级持有。
-let streamTiming: { tRequest: number; tFirst: number } | null = null;
-let lastStreamRate = "";
+// （剔除 TTFT/排队），message_end 用精确 usage.output 收口。
+const streamState: { timing: { tRequest: number; tFirst: number } | null; lastRate: string } = {
+  timing: null,
+  lastRate: "",
+};
+
+function resetStreamState(): void {
+  streamState.timing = null;
+  streamState.lastRate = "";
+}
 
 function createUsageTotals(): UsageTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
@@ -62,40 +72,49 @@ function createUsageTotals(): UsageTotals {
 function addUsage(totals: UsageTotals, usage: UsageLike | undefined): void {
   if (!usage) return;
 
-  totals.input += usage.input ?? 0;
-  totals.output += usage.output ?? 0;
-  totals.cacheRead += usage.cacheRead ?? 0;
-  totals.cacheWrite += usage.cacheWrite ?? 0;
-  totals.cost += usage.cost?.total ?? 0;
+  const finiteNonNegative = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+
+  totals.input += finiteNonNegative(usage.input);
+  totals.output += finiteNonNegative(usage.output);
+  totals.cacheRead += finiteNonNegative(usage.cacheRead);
+  totals.cacheWrite += finiteNonNegative(usage.cacheWrite);
+  totals.cost += finiteNonNegative(usage.cost?.total);
 }
 
-function computeUsageTotals(entries: ReturnType<ExtensionContext["sessionManager"]["getEntries"]>): UsageTotals {
+function entryUsage(entry: SessionEntry | undefined): UsageLike | undefined {
+  if (!entry) return undefined;
+  if (entry.type === "message") {
+    if (entry.message.role !== "assistant" && entry.message.role !== "toolResult") return undefined;
+    return (entry.message as { usage?: UsageLike }).usage;
+  }
+  if (entry.type === "branch_summary" || entry.type === "compaction") {
+    return entry.usage as UsageLike | undefined;
+  }
+  return undefined;
+}
+
+// 求和口径与 pi 官方一致（core/getUsageCostBreakdown 同样四类全加）：assistant/toolResult/
+// branch_summary/compaction 的 usage 都是各次请求的增量，其中 branch_summary、compaction
+// 记录的是摘要生成那次 LLM 调用自身的 usage，直接累加不会重复计数。
+function computeUsageTotals(entries: SessionEntries): UsageTotals {
   const totals = createUsageTotals();
 
   for (const entry of entries) {
-    if (entry.type === "message") {
-      if (entry.message.role === "assistant" || entry.message.role === "toolResult") {
-        addUsage(totals, entry.message.usage as UsageLike | undefined);
-      }
-      continue;
-    }
-
-    if (entry.type === "branch_summary" || entry.type === "compaction") {
-      addUsage(totals, entry.usage as UsageLike | undefined);
-    }
+    addUsage(totals, entryUsage(entry));
   }
 
   return totals;
 }
 
-function computeSessionStats(entries: ReturnType<ExtensionContext["sessionManager"]["getEntries"]>): SessionStats {
+function computeSessionStats(entries: SessionEntries): SessionStats {
   const stats: SessionStats = { firstTs: Number.NaN, lastTs: Number.NaN, turns: 0 };
 
   for (const entry of entries) {
     const ts = Date.parse((entry as { timestamp?: string }).timestamp ?? "");
     if (Number.isFinite(ts)) {
-      if (Number.isNaN(stats.firstTs)) stats.firstTs = ts;
-      stats.lastTs = ts;
+      stats.firstTs = Number.isNaN(stats.firstTs) ? ts : Math.min(stats.firstTs, ts);
+      stats.lastTs = Number.isNaN(stats.lastTs) ? ts : Math.max(stats.lastTs, ts);
     }
     if (entry.type === "message" && entry.message.role === "assistant") stats.turns++;
   }
@@ -103,12 +122,36 @@ function computeSessionStats(entries: ReturnType<ExtensionContext["sessionManage
   return stats;
 }
 
+function usageSignature(usage: UsageLike | undefined): string {
+  if (!usage) return "";
+  return [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.cost?.total]
+    .map((value) => (Number.isFinite(value) ? value : ""))
+    .join(",");
+}
+
+/**
+ * Session entries can be updated in place while a response is finalized. Include
+ * the leaf fields used by the footer so those updates invalidate derived totals
+ * without scanning the entire session on every render. In-place edits to
+ * non-final entries are not detected; totals catch up on the next append.
+ */
+function entrySignature(entry: SessionEntry | undefined): string {
+  if (!entry) return "";
+  const timestamp = (entry as { timestamp?: string }).timestamp ?? "";
+  const role = entry.type === "message" ? entry.message.role : "";
+  return `${entry.type}|${timestamp}|${role}|${usageSignature(entryUsage(entry))}`;
+}
+
+function entriesCacheKey(entries: SessionEntries): string {
+  return `${entries.length}|${entrySignature(entries.at(-1))}`;
+}
+
 // 色彩语义（全部取自 pi 主题，随 dark/light 切换）：
 // 图标/分隔/轨道 = muted·dim，数值 = text，身份（provider/模型）= accent·text，
 // 钱 = warning，上下文 = 阈值变色（accent → warning → error）。
 
-function contextColor(percent: number | null): ContextColor {
-  if (percent === null) return "muted";
+function contextColor(percent: number | undefined): ContextColor {
+  if (percent === undefined) return "muted";
   if (percent >= CONTEXT_ERROR_PERCENT) return "error";
   if (percent >= CONTEXT_WARNING_PERCENT) return "warning";
   return "accent";
@@ -121,10 +164,10 @@ function contextColor(percent: number | null): ContextColor {
 function contextField(ctx: ExtensionContext, theme: Theme, budget: number): string {
   const usage = ctx.getContextUsage();
   const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-  const percent = usage?.percent ?? null;
+  const percent = normalizeContextPercent(usage?.percent);
   const icon = theme.fg("muted", "⎔");
 
-  if (percent === null) {
+  if (percent === undefined) {
     return `${icon} ${theme.fg("muted", formatContext(undefined, contextWindow))}`;
   }
 
@@ -268,8 +311,8 @@ function renderFooter(
   if (CONFIG.showTurns && session.turns > 0) {
     timeParts.push(theme.fg("text", `${session.turns}轮`));
   }
-  if (CONFIG.showSpeed && lastStreamRate) {
-    timeParts.push(theme.fg("text", lastStreamRate));
+  if (CONFIG.showSpeed && streamState.lastRate) {
+    timeParts.push(theme.fg("text", streamState.lastRate));
   }
   const timeGroup = timeParts.length > 0
     ? `${theme.fg("muted", "◷")} ${timeParts.join(theme.fg("muted", " · "))}`
@@ -322,7 +365,7 @@ function renderFooter(
 }
 
 function installFooter(ctx: ExtensionContext): void {
-  let cachedEntryCount = -1;
+  let cachedEntryKey = "";
   let cachedTotals = createUsageTotals();
   let cachedSession: SessionStats = { firstTs: Number.NaN, lastTs: Number.NaN, turns: 0 };
 
@@ -334,10 +377,11 @@ function installFooter(ctx: ExtensionContext): void {
       invalidate() {},
       render(width: number): string[] {
         const entries = ctx.sessionManager.getEntries();
-        if (entries.length !== cachedEntryCount) {
+        const key = entriesCacheKey(entries);
+        if (key !== cachedEntryKey) {
           cachedTotals = computeUsageTotals(entries);
           cachedSession = computeSessionStats(entries);
-          cachedEntryCount = entries.length;
+          cachedEntryKey = key;
         }
         return renderFooter(ctx, footerData, theme, width, cachedTotals, cachedSession);
       },
@@ -352,23 +396,26 @@ function showLegend(ctx: ExtensionContext): void {
 export default function (pi: ExtensionAPI): void {
   pi.on("message_start", (event) => {
     if (event.message.role !== "assistant") return;
-    streamTiming = { tRequest: Date.now(), tFirst: 0 };
+    streamState.timing = { tRequest: Date.now(), tFirst: 0 };
+    streamState.lastRate = "";
   });
 
-  pi.on("message_update", () => {
-    if (streamTiming && !streamTiming.tFirst) streamTiming.tFirst = Date.now();
+  pi.on("message_update", (event) => {
+    if (event.message.role !== "assistant") return;
+    if (streamState.timing && !streamState.timing.tFirst) streamState.timing.tFirst = Date.now();
   });
 
   pi.on("message_end", (event) => {
-    if (!streamTiming || event.message.role !== "assistant") return;
+    if (!streamState.timing || event.message.role !== "assistant") return;
     const usage = (event.message as { usage?: { output?: number } }).usage;
-    const start = streamTiming.tFirst || streamTiming.tRequest;
+    const start = streamState.timing.tFirst || streamState.timing.tRequest;
     const ms = Date.now() - start;
-    streamTiming = null;
-    if (usage?.output && ms > 0) lastStreamRate = formatSpeed(usage.output, ms);
+    streamState.timing = null;
+    if (usage?.output && ms > 0) streamState.lastRate = formatSpeed(usage.output, ms);
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    resetStreamState();
     installFooter(ctx);
   });
 
@@ -379,6 +426,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    resetStreamState();
     ctx.ui.setWidget(LEGEND_WIDGET_KEY, undefined);
     ctx.ui.setFooter(undefined);
   });

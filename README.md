@@ -1,5 +1,7 @@
 # pi-signal-footer
 
+English | [简体中文](README.zh-CN.md)
+
 A readable, responsive two-line status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono), replacing the built-in footer.
 
 ```text
@@ -18,12 +20,13 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 ## Install
 
 ```sh
-pi install git:github.com/YOU/pi-signal-footer
-# or from a local checkout
+# from a local checkout
 pi install ./pi-signal-footer
 ```
 
-Requires Pi Coding Agent ≥ 0.84.
+For a published Git repository, replace the local path with that repository's Pi install reference.
+
+Requires Pi Coding Agent ≥ 0.84 and Node.js ≥ 22.19.0. The development checks are exercised on Node.js 22.19 and 24 in CI.
 
 ## Configure
 
@@ -54,7 +57,14 @@ export const CONFIG = {
 
 ```sh
 npm test
+npm run typecheck
+npm run check
+npm run pack:check
 ```
+
+`npm run check` runs the full test suite followed by the TypeScript check. `npm run pack:check` previews the files that will ship in the Pi package.
+
+The TypeScript check skips declarations inside the Pi SDK dependency tree; the extension source is still checked strictly.
 
 Icons are plain-text glyphs only (measured width 1, no emoji variants) so terminal column math and colors stay under your control.
 

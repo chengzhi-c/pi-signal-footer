@@ -16,7 +16,7 @@ import {
   sanitizeStatusText,
   splitProjectPath,
   stripAnsi,
-} from "../format.js";
+} from "../format.ts";
 
 test("formats token counts with compact, stable suffixes", () => {
   assert.equal(formatTokens(213), "213");
@@ -51,6 +51,12 @@ test("contextBarParts yields colorable segments with stable math", () => {
 
 test("keeps extension statuses on one visual line", () => {
   assert.equal(sanitizeStatusText("Relay:\treal-time\nMCP: 1"), "Relay: real-time MCP: 1");
+});
+
+test("treats non-string extension statuses as empty", () => {
+  assert.equal(sanitizeStatusText(undefined), "");
+  assert.equal(sanitizeStatusText(null), "");
+  assert.equal(sanitizeStatusText(42), "");
 });
 
 test("strips ANSI sequences before parsing foreign status text", () => {
@@ -100,6 +106,13 @@ test("automatically identifies model families by model ID", () => {
   assert.equal(getModelIcon("unknown-model", "custom"), "◈");
 });
 
+test("prefers named model families over OpenAI's loose -o1/-o3 suffixes", () => {
+  assert.equal(getModelIcon("qwen-o1", "aliyun"), "𝐐");
+  assert.equal(getModelIcon("yi-o1", "test"), "①");
+  assert.equal(getModelIcon("o1-pro", "openai"), "⬢");
+  assert.equal(getModelIcon("chatgpt-4o", "openai"), "⬢");
+});
+
 test("formats session duration in compact wall-clock units", () => {
   assert.equal(formatDuration(0), "0m");
   assert.equal(formatDuration(-5), "0m");
@@ -129,12 +142,13 @@ test("splits project path with home abbreviation for the identity slot", () => {
   assert.deepEqual(splitProjectPath("myapp", ""), { parent: "", name: "myapp" });
   assert.deepEqual(splitProjectPath("", ""), { parent: "", name: "" });
   assert.deepEqual(splitProjectPath("C:\\Users\\devx\\app", "C:\\Users\\dev"), { parent: "C:/Users/devx/", name: "app" });
+  assert.deepEqual(splitProjectPath("c:\\users\\dev\\myapp", "C:\\Users\\Dev"), { parent: "~/", name: "myapp" });
 });
 
-test("ships a Chinese guide for every compact metric group", () => {
+test("legend explains every glyph the footer renders", () => {
   const guide = LEGEND_LINES.join(" ");
-  assert.match(guide, /输入/);
-  assert.match(guide, /缓存读/);
-  assert.match(guide, /上下文/);
+  // 与 index.ts 渲染符号同步：新增或改名符号时，同步更新图例与此清单
+  for (const glyph of ["↓", "↑", "↻", "✎", "⎔", "⇄", "◷", "⎇", "✦", "MCP", "LSP", "$"]) {
+    assert.ok(guide.includes(glyph), `legend missing "${glyph}"`);
+  }
 });
-
