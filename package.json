@@ -2,7 +2,7 @@
   "name": "pi-signal-footer",
   "version": "0.2.3",
   "type": "module",
-  "description": "A readable, responsive two-line status footer for Pi Coding Agent: model identity, token/cache/cost stats, adaptive context bar, session time and extension statuses.",
+  "description": "A readable status footer for Pi Coding Agent: model, tokens, cache, cost, context bar, and MCP/LSP status.",
   "license": "MIT",
   "repository": {
     "type": "git",
