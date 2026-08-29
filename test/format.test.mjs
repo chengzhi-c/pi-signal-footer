@@ -3,13 +3,13 @@ import test from "node:test";
 
 import {
   LEGEND_LINES,
+  contextBarParts,
   formatCacheHitRatio,
   formatContext,
   formatContextBar,
   formatCost,
   formatDuration,
   formatProjectName,
-  formatProvider,
   formatTokens,
   getModelIcon,
   sanitizeStatusText,
@@ -48,6 +48,12 @@ test("renders a sleek rail context bar from context usage", () => {
   assert.equal(formatContextBar(null, 4), "[????]");
 });
 
+test("contextBarParts yields colorable segments with stable math", () => {
+  assert.deepEqual(contextBarParts(50, 8), { fill: "━━━━", track: "────", unknown: false });
+  assert.deepEqual(contextBarParts(null, 3), { fill: "", track: "???", unknown: true });
+  assert.equal(contextBarParts(50, 8).fill.length + contextBarParts(50, 8).track.length, 8);
+});
+
 test("keeps extension statuses on one visual line", () => {
   assert.equal(sanitizeStatusText("Relay:\treal-time\nMCP: 1"), "Relay: real-time MCP: 1");
 });
@@ -68,11 +74,6 @@ test("automatically identifies model families by model ID", () => {
   assert.equal(getModelIcon("mistral-large", "mistral"), "𝐌");
   assert.equal(getModelIcon("yi-large", "01-ai"), "①");
   assert.equal(getModelIcon("unknown-model", "custom"), "◈");
-});
-
-test("formats provider name properly", () => {
-  assert.equal(formatProvider("cat-grok"), "cat-grok");
-  assert.equal(formatProvider(""), "");
 });
 
 test("formats session duration in compact wall-clock units", () => {

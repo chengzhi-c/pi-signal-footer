@@ -9,7 +9,9 @@ import {
   formatDuration,
   formatProjectName,
   formatTokens,
+  getModelIcon,
   sanitizeStatusText,
+  contextBarParts,
 } from "./format.js";
 
 /** 字段开关：改这里即可定制 footer，无需动渲染逻辑。 */
@@ -31,24 +33,6 @@ const CONTEXT_WARNING_PERCENT = 50;
 const CONTEXT_ERROR_PERCENT = 75;
 
 type ContextColor = "accent" | "warning" | "error" | "muted";
-
-function getModelIcon(modelId?: string, provider?: string): string {  const combined = `${provider ?? ""}/${modelId ?? ""}`.toLowerCase();
-  if (combined.includes("grok") || combined.includes("xai")) return "𝕏";
-  if (combined.includes("glm") || combined.includes("zhipu") || combined.includes("chatglm")) return "𝐙";
-  if (combined.includes("claude") || combined.includes("anthropic")) return "✻";
-  if (combined.includes("gpt") || combined.includes("o1") || combined.includes("o3") || combined.includes("openai") || combined.includes("chatgpt")) return "⬢";
-  if (combined.includes("gemini") || combined.includes("gemma") || combined.includes("google")) return "✧";
-  if (combined.includes("deepseek") || combined.includes("deep-seek")) return "◎";
-  if (combined.includes("qwen") || combined.includes("qwq") || combined.includes("tongyi")) return "𝐐";
-  if (combined.includes("llama") || combined.includes("meta")) return "𝕃";
-  if (combined.includes("mistral") || combined.includes("codestral") || combined.includes("mixtral")) return "𝐌";
-  if (combined.includes("kimi") || combined.includes("moonshot")) return "𝐊";
-  if (combined.includes("doubao") || combined.includes("bytedance")) return "𝐃";
-  if (combined.includes("yi-") || combined.includes("01-ai") || combined.includes("lingyi")) return "①";
-  if (combined.includes("minimax") || combined.includes("abab")) return "⬡";
-  if (combined.includes("ollama") || combined.includes("local")) return "⌂";
-  return "◈";
-}
 
 type UsageLike = {
   input?: number;
@@ -143,9 +127,8 @@ function contextField(ctx: ExtensionContext, theme: Theme, budget: number): stri
   const barWidth = Math.min(MAX_CONTEXT_BAR, budget - visibleWidth(head) - visibleWidth(numbers) - 4);
 
   if (barWidth < MIN_CONTEXT_BAR) return `${head}  ${numbers}`;
-  const normalized = Math.min(100, Math.max(0, percent));
-  const filled = normalized === 0 ? 0 : Math.max(1, Math.round((normalized / 100) * barWidth));
-  const bar = `${theme.fg("muted", "[")}${colorFn("━".repeat(filled))}${theme.fg("dim", "─".repeat(barWidth - filled))}${theme.fg("muted", "]")}`;
+  const { fill, track } = contextBarParts(percent, barWidth);
+  const bar = `${theme.fg("muted", "[")}${colorFn(fill)}${theme.fg("dim", track)}${theme.fg("muted", "]")}`;
   return `${head}  ${bar}  ${numbers}`;
 }
 
@@ -252,9 +235,9 @@ function renderFooter(
   const cacheGroup = `${cacheRead}   ${cacheWrite}`;
   const stats = [trafficGroup, cacheGroup, cost, timeGroup].filter(Boolean).join(pipe);
 
-  // 项目名 + 会话名：多项目/多会话时的身份前缀
-  const project = CONFIG.showProject ? formatProjectName(ctx.sessionManager.getCwd()) : "";
-  const sessionName = project && CONFIG.showSessionName ? ctx.sessionManager.getSessionName() : undefined;
+  // 项目名 + 会话名：多项目/多会话时的身份前缀（可选链防旧版 pi 缺方法时 render 崩溃）
+  const project = CONFIG.showProject ? formatProjectName(ctx.sessionManager.getCwd?.() ?? "") : "";
+  const sessionName = project && CONFIG.showSessionName ? ctx.sessionManager.getSessionName?.() : undefined;
   let identityLeft = model;
   if (project) {
     let projectSection = theme.bold(theme.fg("text", project));

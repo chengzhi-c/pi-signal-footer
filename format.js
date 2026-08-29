@@ -3,7 +3,7 @@ export const LEGEND_LINES = [
   "↓ 输入: 本会话送往模型的请求 token；↑ 输出: 模型生成的 token。",
   "↻ 缓存读: 已复用的提示词缓存 token 及命中率；✎ 缓存写: 新写入缓存的 token。",
   "费用: 会话累计估算成本；⎔: 提示词上下文占用比例与窗口 token（已用/上限）。",
-  "模型: ◈ provider › model；✦ 推理: 思考等级；⎇ 分支: 当前 Git 分支；•: 扩展状态。",
+  "模型: 图标 provider › model（图标按模型家族匹配）；✦ 推理: 思考等级；⎇ 分支: 当前 Git 分支；•: 扩展状态。",
   "项目名: 当前目录（含会话名，若已设置）；◷: 会话活跃跨度与交互轮次。",
   "关闭图例: /signal-footer hide",
 ];
@@ -25,10 +25,6 @@ export function getModelIcon(modelId = "", provider = "") {
   if (combined.includes("minimax") || combined.includes("abab")) return "⬡";
   if (combined.includes("ollama") || combined.includes("local")) return "⌂";
   return "◈";
-}
-
-export function formatProvider(provider = "") {
-  return provider;
 }
 
 export function formatTokens(count) {
@@ -82,16 +78,22 @@ export function formatContext(tokens, contextWindow) {
   return `${used === undefined ? "?" : formatTokens(used)}/${window === undefined ? "?" : formatTokens(window)}`;
 }
 
-export function formatContextBar(percent, width) {
+/** 唯一的填充数学：返回已填充/剩余轨道字符串，供着色组装与纯文本输出共用。 */
+export function contextBarParts(percent, width) {
   const length = Number.isInteger(width) && width > 0 ? width : 1;
   const normalizedPercent = normalizeContextPercent(percent);
 
-  if (normalizedPercent === undefined) return `[${"?".repeat(length)}]`;
+  if (normalizedPercent === undefined) return { fill: "", track: "?".repeat(length), unknown: true };
 
   const filled = normalizedPercent === 0
     ? 0
     : Math.max(1, Math.round((normalizedPercent / 100) * length));
-  return `[${CONTEXT_BAR_FILLED.repeat(filled)}${CONTEXT_BAR_EMPTY.repeat(length - filled)}]`;
+  return { fill: CONTEXT_BAR_FILLED.repeat(filled), track: CONTEXT_BAR_EMPTY.repeat(length - filled), unknown: false };
+}
+
+export function formatContextBar(percent, width) {
+  const { fill, track, unknown } = contextBarParts(percent, width);
+  return unknown ? `[${track}]` : `[${fill}${track}]`;
 }
 
 export function sanitizeStatusText(text) {
