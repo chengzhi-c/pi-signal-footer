@@ -10,7 +10,7 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 - **Model identity** — provider, model, auto-detected model-family icon, thinking level, git branch, and the full project path (parent dirs dimmed, home abbreviated to `~`) with the session name.
 - **Session stats** — input/output tokens, cache read (with hit ratio), cache write, accumulated cost.
 - **Adaptive context bar** — percentage, smooth rail and used/window tokens; the rail shrinks with available space and disappears first when tight, so numbers are always the last thing to go. Turns warning at ≥50%, error at ≥75%, `?` when unknown (e.g. right after compaction).
-- **Session clock** — active time span (first → latest message) and interaction turns.
+- **Session clock** — active time span (first → latest message), interaction turns, and the last response's streaming rate (tok/s, measured from first token to stream end, excluding time-to-first-token).
 - **Extension statuses** — everything other extensions publish via `setStatus()` stays visible.
 - **Theme-native colors** — every color comes from the active Pi theme (`dark`/`light`), no hardcoded palettes. Role semantics: icons/structure muted, numbers text, identity accent, cost warning, alerts threshold-colored.
 - **Never overflows** — lines degrade gracefully instead of wrapping: decorations die first, data last.
@@ -35,6 +35,7 @@ export const CONFIG = {
   showSessionName: true,  // session name, when set
   showDuration: true,     // active time span
   showTurns: true,        // assistant turns
+  showSpeed: true,        // streaming tok/s of the last response
   showBranch: true,       // git branch
   showCacheRatio: true,   // cache hit ratio
 };

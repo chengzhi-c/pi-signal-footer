@@ -7,6 +7,7 @@ import {
   formatContext,
   formatCost,
   formatDuration,
+  formatSpeed,
   formatTokens,
   getModelIcon,
   sanitizeStatusText,
@@ -20,6 +21,7 @@ export const CONFIG = {
   showSessionName: true,  // 会话名（仅在 /session name 设置后出现）
   showDuration: true,     // 会话活跃跨度（首条消息 → 最新消息）
   showTurns: true,        // 交互轮次（assistant 消息数）
+  showSpeed: true,        // 流式生成速率（tok/s，最近一次响应）
   showBranch: true,       // git 分支
   showCacheRatio: true,   // 缓存命中率
 };
@@ -45,6 +47,11 @@ type UsageLike = {
 type UsageTotals = Required<Omit<UsageLike, "cost">> & { cost: number };
 
 type SessionStats = { firstTs: number; lastTs: number; turns: number };
+
+// 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
+// （剔除 TTFT/排队），message_end 用精确 usage.output 收口。跨事件共享，模块级持有。
+let streamTiming: { tRequest: number; tFirst: number } | null = null;
+let lastStreamRate = "";
 
 function createUsageTotals(): UsageTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
@@ -227,6 +234,9 @@ function renderFooter(
   if (CONFIG.showTurns && session.turns > 0) {
     timeParts.push(theme.fg("text", `${session.turns}轮`));
   }
+  if (CONFIG.showSpeed && lastStreamRate) {
+    timeParts.push(theme.fg("text", lastStreamRate));
+  }
   const timeGroup = timeParts.length > 0
     ? `${theme.fg("muted", "◷")} ${timeParts.join(theme.fg("muted", " · "))}`
     : "";
@@ -306,6 +316,24 @@ function showLegend(ctx: ExtensionContext): void {
 }
 
 export default function (pi: ExtensionAPI): void {
+  pi.on("message_start", (event) => {
+    if (event.message.role !== "assistant") return;
+    streamTiming = { tRequest: Date.now(), tFirst: 0 };
+  });
+
+  pi.on("message_update", () => {
+    if (streamTiming && !streamTiming.tFirst) streamTiming.tFirst = Date.now();
+  });
+
+  pi.on("message_end", (event) => {
+    if (!streamTiming || event.message.role !== "assistant") return;
+    const usage = (event.message as { usage?: { output?: number } }).usage;
+    const start = streamTiming.tFirst || streamTiming.tRequest;
+    const ms = Date.now() - start;
+    streamTiming = null;
+    if (usage?.output && ms > 0) lastStreamRate = formatSpeed(usage.output, ms);
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     installFooter(ctx);
   });

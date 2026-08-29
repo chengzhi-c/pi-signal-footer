@@ -11,6 +11,7 @@ import {
   formatDuration,
   formatTokens,
   getModelIcon,
+  formatSpeed,
   sanitizeStatusText,
   splitProjectPath,
 } from "../format.js";
@@ -85,6 +86,15 @@ test("formats session duration in compact wall-clock units", () => {
   assert.equal(formatDuration(45 * 60_000), "45m");
   assert.equal(formatDuration(2 * 3_600_000 + 13 * 60_000), "2h13m");
   assert.equal(formatDuration(3 * 3_600_000), "3h00m");
+});
+
+test("formats streaming speed and stays silent without data", () => {
+  assert.equal(formatSpeed(950, 10_000), "95 tok/s");
+  assert.equal(formatSpeed(999, 1_000), "999 tok/s");
+  assert.equal(formatSpeed(0, 5_000), "");
+  assert.equal(formatSpeed(100, 0), "");
+  assert.equal(formatSpeed(-5, 1_000), "");
+  assert.equal(formatSpeed(Number.NaN, Number.NaN), "");
 });
 
 test("splits project path with home abbreviation for the identity slot", () => {
