@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A readable, responsive two-line status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono), replacing the built-in footer.
+A readable, responsive status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono), replacing the built-in footer. Line one is identity: project, session, provider and model with an auto-matched family icon, thinking level, git branch, plus a context bar that shrinks with the terminal. Line two is data: tokens in and out, cache read/write with hit ratio, cost, session clock, and MCP/LSP status chips. Wide terminals fit everything on two lines; narrow ones stack the same data into more rows — nothing wraps or overflows.
 
 ```text
 agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main    ⎔ 12% [━━──────────────────] 36k/300k
@@ -20,11 +20,14 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 ## Install
 
 ```sh
+# pinned release
+pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.0
+
 # from a local checkout
 pi install ./pi-signal-footer
 ```
 
-For a published Git repository, replace the local path with that repository's Pi install reference.
+Git installs pin the tag: `pi update` never moves it. To upgrade, rerun the same command with the new tag.
 
 Requires Pi Coding Agent ≥ 0.84 and Node.js ≥ 22.19.0. The development checks are exercised on Node.js 22.19 and 24 in CI.
 

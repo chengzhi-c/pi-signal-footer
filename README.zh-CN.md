@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-为 [Pi Coding Agent](https://github.com/earendil-works/pi-mono) 提供可读、自适应的两行状态栏，替代内置 footer。
+为 [Pi Coding Agent](https://github.com/earendil-works/pi-mono) 提供可读、自适应的状态栏，替代内置 footer。第一行是身份：项目路径与会话名、provider › 模型（按模型家族自动匹配图标）、思考等级、Git 分支，右侧是随终端宽度伸缩的上下文占用条。第二行是数据：输入/输出 token、缓存读写与命中率、累计成本、会话时长与最近响应的流式速率，右端是 MCP/LSP 状态。宽终端两行放下全部信息；窄终端把同样的数据拆成更多行，永不换行溢出。
 
 ```text
 agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main    ⎔ 12% [━━──────────────────] 36k/300k
@@ -20,11 +20,14 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 ## 安装
 
 ```sh
+# 钉住版本安装
+pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.0
+
 # 从本地检出安装
 pi install ./pi-signal-footer
 ```
 
-若从已发布的 Git 仓库安装，把本地路径替换为该仓库的 Pi 安装引用。
+git 安装钉在 tag 上，`pi update` 不会自动升级；升级时用新 tag 重新执行同一条命令。
 
 需要 Pi Coding Agent ≥ 0.84 与 Node.js ≥ 22.19.0。开发检查在 CI 中于 Node.js 22.19 与 24 上执行。
 
