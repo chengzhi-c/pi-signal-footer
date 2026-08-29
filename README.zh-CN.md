@@ -2,12 +2,12 @@
 
 [English](README.md) | 简体中文
 
+为 [Pi Coding Agent](https://github.com/earendil-works/pi-mono) 提供的状态栏，替代内置 footer。
+
 ```text
 agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main    ⎔ 12% [━━──────────────────] 36k/300k
 ↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s    ⇄ MCP 1/1 · LSP typescript
 ```
-
-为 [Pi Coding Agent](https://github.com/earendil-works/pi-mono) 提供的状态栏，替代内置 footer。
 
 第一行显示项目路径、会话名、provider 和模型、思考等级、Git 分支。模型图标按模型家族匹配，主目录下的路径缩写为 `~`。上下文占用条用掉行内剩余宽度，显示百分比与已用/窗口 token：占用 ≥50% 变警告色，≥75% 变错误色，未知时显示 `?`。
 

@@ -2,12 +2,12 @@
 
 English | [简体中文](README.zh-CN.md)
 
+A status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono), replacing the built-in one.
+
 ```text
 agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main    ⎔ 12% [━━──────────────────] 36k/300k
 ↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s    ⇄ MCP 1/1 · LSP typescript
 ```
-
-A status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono), replacing the built-in one.
 
 The first line shows the project path, session name, provider and model, thinking level, and git branch. Model icons are matched by model family, and paths under the home directory are abbreviated to `~`. The context bar takes whatever width is left and shows the percentage plus used and window tokens: warning color at 50%, error color at 75%, `?` while usage is unknown.
 
