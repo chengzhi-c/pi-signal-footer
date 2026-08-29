@@ -17,20 +17,29 @@ On narrower terminals the two lines split into three and then six, and fields th
 
 ## Install
 
+### npm
+
 ```sh
 pi install npm:pi-signal-footer
+```
 
-# pinned version
-pi install npm:pi-signal-footer@0.2.1
+Tracks the latest release and updates with `pi update --extensions`. To pin a version, use `pi install npm:pi-signal-footer@0.2.1`.
 
-# git tag
+### Git
+
+```sh
 pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.1
+```
 
-# local checkout
+Stays on the tag; to upgrade, rerun the command with the new tag.
+
+### Local path
+
+```sh
 pi install ./pi-signal-footer
 ```
 
-Unversioned npm installs update with `pi update --extensions`. Versioned npm and git installs stay on their version or tag; to upgrade, rerun the command with the new number.
+Loads a directory from disk, for development and testing.
 
 Requires Pi Coding Agent ≥ 0.84 and Node.js ≥ 22.19.0.
 
