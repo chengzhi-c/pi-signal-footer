@@ -188,7 +188,8 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme): stri
     const mcp = parseMcpStatus(clean);
     if (mcp) {
       if (mcp.enabled > 0) {
-        const color = mcp.connected === 0 ? "error" : mcp.connected < mcp.enabled ? "warning" : "text";
+        // 懒连接服务器闲置时 0 连接属正常，全未连用中性灰而不是故障红
+        const color = mcp.connected === 0 ? "muted" : mcp.connected < mcp.enabled ? "warning" : "text";
         chips.push(`${theme.fg("muted", "⇄ MCP")} ${theme.fg(color, `${mcp.connected}/${mcp.enabled}`)}`);
       }
       continue;
