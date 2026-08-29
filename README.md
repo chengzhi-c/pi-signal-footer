@@ -3,8 +3,8 @@
 A readable, responsive two-line status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono), replacing the built-in footer.
 
 ```text
-agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731  │  ✦ max  │  ⎇ main      ⎔ 12% [━──────────────────] 36k/300k
-↓ 213   ↑ 32k  │  ↻ 5.1M (97%)   ✎ 137k  │  $0.087  │  ◷ 2h25m · 1轮      LSP Inactive • MCP: 1 server enabled
+agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main    ⎔ 12% [━━──────────────────] 36k/300k
+↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮    LSP Inactive • MCP: 1 server enabled
 ```
 
 - **Model identity** — provider, model, auto-detected model-family icon, thinking level, git branch, and the full project path (parent dirs dimmed, home abbreviated to `~`) with the session name.

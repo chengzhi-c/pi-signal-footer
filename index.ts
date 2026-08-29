@@ -116,34 +116,34 @@ function contextField(ctx: ExtensionContext, theme: Theme, budget: number): stri
   const icon = theme.fg("muted", "⎔");
 
   if (percent === null) {
-    return `${icon}  ${theme.fg("muted", formatContext(undefined, contextWindow))}`;
+    return `${icon} ${theme.fg("muted", formatContext(undefined, contextWindow))}`;
   }
 
   const color = contextColor(percent);
   const colorFn = (t: string) => theme.fg(color, t);
-  const head = `${icon}  ${colorFn(`${Math.min(100, Math.round(percent))}%`)}`;
+  const head = `${icon} ${colorFn(`${Math.min(100, Math.round(percent))}%`)}`;
   const numbers = colorFn(formatContext(usage?.tokens, contextWindow));
   // 预算扣除：head、numbers，加上前后两个空格与条自身的一对方括号
   const barWidth = Math.min(MAX_CONTEXT_BAR, budget - visibleWidth(head) - visibleWidth(numbers) - 4);
 
-  if (barWidth < MIN_CONTEXT_BAR) return `${head}  ${numbers}`;
+  if (barWidth < MIN_CONTEXT_BAR) return `${head} ${numbers}`;
   const { fill, track } = contextBarParts(percent, barWidth);
   const bar = `${theme.fg("muted", "[")}${colorFn(fill)}${theme.fg("dim", track)}${theme.fg("muted", "]")}`;
-  return `${head}  ${bar}  ${numbers}`;
+  return `${head} ${bar} ${numbers}`;
 }
 
 function modelField(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFooterDataProvider): string {
   const provider = ctx.model?.provider?.trim() ?? "";
   const model = ctx.model?.id ?? "no-model";
   const modelIcon = getModelIcon(model, provider);
-  const pipe = theme.fg("muted", "  │  ");
+  const pipe = theme.fg("muted", " │ ");
 
   const separator = theme.fg("muted", "›");
-  const modelText = `${theme.fg("accent", modelIcon)}  ${theme.fg("text", model)}`;
+  const modelText = `${theme.fg("accent", modelIcon)} ${theme.fg("text", model)}`;
 
   let modelSection = modelText;
   if (provider) {
-    modelSection = `${theme.fg("accent", provider)}  ${separator}  ${modelText}`;
+    modelSection = `${theme.fg("accent", provider)} ${separator} ${modelText}`;
   }
 
   const parts = [modelSection];
@@ -151,13 +151,13 @@ function modelField(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFoo
   if (ctx.model?.reasoning) {
     const level = ctx.thinkingLevel ?? "off";
     if (level !== "off") {
-      parts.push(`${theme.fg("muted", "✦")}  ${theme.getThinkingBorderColor(level)(level)}`);
+      parts.push(`${theme.fg("muted", "✦")} ${theme.getThinkingBorderColor(level)(level)}`);
     }
   }
 
   const branch = footerData.getGitBranch();
   if (CONFIG.showBranch && branch) {
-    parts.push(theme.fg("muted", `⎇  ${branch}`));
+    parts.push(theme.fg("muted", `⎇ ${branch}`));
   }
 
   return parts.join(pipe);
@@ -170,7 +170,7 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme): stri
     .filter(Boolean);
 
   if (statuses.length === 0) return undefined;
-  return statuses.map(s => theme.fg("muted", s)).join(theme.fg("dim", "  •  "));
+  return statuses.map(s => theme.fg("muted", s)).join(theme.fg("dim", " • "));
 }
 
 function truncate(value: string, width: number, theme: Theme): string {
@@ -205,17 +205,17 @@ function renderFooter(
   totals: UsageTotals,
   session: SessionStats,
 ): string[] {
-  const pipe = theme.fg("muted", "  │  ");
+  const pipe = theme.fg("muted", " │ ");
 
-  const input = `${theme.fg("muted", "↓")}  ${theme.fg("text", formatTokens(totals.input))}`;
-  const output = `${theme.fg("muted", "↑")}  ${theme.fg("text", formatTokens(totals.output))}`;
+  const input = `${theme.fg("muted", "↓")} ${theme.fg("text", formatTokens(totals.input))}`;
+  const output = `${theme.fg("muted", "↑")} ${theme.fg("text", formatTokens(totals.output))}`;
 
   const hitRatio = CONFIG.showCacheRatio && totals.cacheWrite > 0 && totals.cacheRead > 0
     ? formatCacheHitRatio(totals.cacheRead, totals.cacheWrite)
     : undefined;
   const cacheReadNum = `${theme.fg("text", formatTokens(totals.cacheRead))}${hitRatio ? theme.fg("muted", ` (${hitRatio})`) : ""}`;
-  const cacheRead = `${theme.fg("muted", "↻")}  ${cacheReadNum}`;
-  const cacheWrite = `${theme.fg("muted", "✎")}  ${theme.fg("text", formatTokens(totals.cacheWrite))}`;
+  const cacheRead = `${theme.fg("muted", "↻")} ${cacheReadNum}`;
+  const cacheWrite = `${theme.fg("muted", "✎")} ${theme.fg("text", formatTokens(totals.cacheWrite))}`;
   const cost = theme.fg("warning", formatCost(totals.cost));
   const model = modelField(ctx, theme, footerData);
   const statuses = statusField(footerData, theme);
@@ -228,11 +228,11 @@ function renderFooter(
     timeParts.push(theme.fg("text", `${session.turns}轮`));
   }
   const timeGroup = timeParts.length > 0
-    ? `${theme.fg("muted", "◷")}  ${timeParts.join(theme.fg("muted", " · "))}`
+    ? `${theme.fg("muted", "◷")} ${timeParts.join(theme.fg("muted", " · "))}`
     : "";
 
-  const trafficGroup = `${input}   ${output}`;
-  const cacheGroup = `${cacheRead}   ${cacheWrite}`;
+  const trafficGroup = `${input} ${output}`;
+  const cacheGroup = `${cacheRead} ${cacheWrite}`;
   const stats = [trafficGroup, cacheGroup, cost, timeGroup].filter(Boolean).join(pipe);
 
   // 项目槽位：完整路径——上级目录弱化、末级目录加粗、主目录缩写为 ~（可选链防旧版 pi 缺方法）
