@@ -1,6 +1,6 @@
 # pi-signal-footer
 
-[English](README.md) | 简体中文
+English | [简体中文](README.zh-CN.md)
 
 ```text
 agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main    ⎔ 12% [━━──────────────────] 36k/300k
