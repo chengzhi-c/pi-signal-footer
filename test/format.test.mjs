@@ -6,7 +6,6 @@ import {
   contextBarParts,
   formatCacheHitRatio,
   formatContext,
-  formatContextBar,
   formatCost,
   formatDuration,
   formatTokens,
@@ -42,14 +41,6 @@ test("calculates cache hit ratios properly", () => {
   assert.equal(formatCacheHitRatio(0, 0), "0%");
   assert.equal(formatCacheHitRatio(100, 100), "50%");
   assert.equal(formatCacheHitRatio(100, 0), "100%");
-});
-
-test("renders a sleek rail context bar from context usage", () => {
-  assert.equal(formatContextBar(0, 8), "[────────]");
-  assert.equal(formatContextBar(50, 8), "[━━━━────]");
-  assert.equal(formatContextBar(12.7, 8), "[━───────]");
-  assert.equal(formatContextBar(100, 4), "[━━━━]");
-  assert.equal(formatContextBar(null, 4), "[????]");
 });
 
 test("contextBarParts yields colorable segments with stable math", () => {

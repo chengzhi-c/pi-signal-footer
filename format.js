@@ -113,11 +113,6 @@ export function contextBarParts(percent, width) {
   return { fill: CONTEXT_BAR_FILLED.repeat(filled), track: CONTEXT_BAR_EMPTY.repeat(length - filled), unknown: false };
 }
 
-export function formatContextBar(percent, width) {
-  const { fill, track, unknown } = contextBarParts(percent, width);
-  return unknown ? `[${track}]` : `[${fill}${track}]`;
-}
-
 export function sanitizeStatusText(text) {
   return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
 }
