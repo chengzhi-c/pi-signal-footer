@@ -7,7 +7,7 @@ agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731  
 ↓ 213   ↑ 32k  │  ↻ 5.1M (97%)   ✎ 137k  │  $0.087  │  ◷ 2h25m · 1轮      LSP Inactive • MCP: 1 server enabled
 ```
 
-- **Model identity** — provider, model, auto-detected model-family icon, thinking level, git branch, project/session name.
+- **Model identity** — provider, model, auto-detected model-family icon, thinking level, git branch, and the full project path (parent dirs dimmed, home abbreviated to `~`) with the session name.
 - **Session stats** — input/output tokens, cache read (with hit ratio), cache write, accumulated cost.
 - **Adaptive context bar** — percentage, smooth rail and used/window tokens; the rail shrinks with available space and disappears first when tight, so numbers are always the last thing to go. Turns warning at ≥50%, error at ≥75%, `?` when unknown (e.g. right after compaction).
 - **Session clock** — active time span (first → latest message) and interaction turns.

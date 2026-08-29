@@ -4,7 +4,7 @@ export const LEGEND_LINES = [
   "↻ 缓存读: 已复用的提示词缓存 token 及命中率；✎ 缓存写: 新写入缓存的 token。",
   "费用: 会话累计估算成本；⎔: 提示词上下文占用比例与窗口 token（已用/上限）。",
   "模型: 图标 provider › model（图标按模型家族匹配）；✦ 推理: 思考等级；⎇ 分支: 当前 Git 分支；•: 扩展状态。",
-  "项目名: 当前目录（含会话名，若已设置）；◷: 会话活跃跨度与交互轮次。",
+  "项目: 当前完整路径（上级目录弱化、主目录缩写为 ~；含会话名，若已设置）；◷: 会话活跃跨度与交互轮次。",
   "关闭图例: /signal-footer hide",
 ];
 
@@ -58,9 +58,24 @@ export function formatDuration(ms) {
   return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-export function formatProjectName(cwd = "") {
-  const parts = String(cwd).split(/[\\/]/).filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : "";
+/** 项目槽位：完整路径，主目录缩写为 ~。返回弱化的上级目录与加粗的末级目录名。 */
+export function splitProjectPath(cwd = "", home = "") {
+  const normalize = (p) => String(p ?? "").replace(/[\\/]+$/, "");
+  const c = normalize(cwd);
+  const h = normalize(home);
+  if (!c) return { parent: "", name: "" };
+
+  let display = c;
+  if (h && c === h) return { parent: "", name: "~" };
+  if (h && c.startsWith(h) && (c[h.length] === "\\" || c[h.length] === "/")) {
+    display = `~${c.slice(h.length)}`;
+  }
+
+  const parts = display.split(/[\\/]/).filter(Boolean);
+  const name = parts[parts.length - 1] ?? "";
+  const root = /^[\\/]/.test(display) ? "/" : "";
+  const parent = parts.slice(0, -1).join("/");
+  return { parent: `${root}${parent ? `${parent}/` : ""}`, name };
 }
 
 const CONTEXT_BAR_FILLED = "━";

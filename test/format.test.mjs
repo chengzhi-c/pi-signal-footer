@@ -9,10 +9,10 @@ import {
   formatContextBar,
   formatCost,
   formatDuration,
-  formatProjectName,
   formatTokens,
   getModelIcon,
   sanitizeStatusText,
+  splitProjectPath,
 } from "../format.js";
 
 test("formats token counts with compact, stable suffixes", () => {
@@ -87,12 +87,15 @@ test("formats session duration in compact wall-clock units", () => {
   assert.equal(formatDuration(3 * 3_600_000), "3h00m");
 });
 
-test("extracts project name from posix and windows cwd", () => {
-  assert.equal(formatProjectName("C:\\Users\\dev\\myapp"), "myapp");
-  assert.equal(formatProjectName("/home/user/myapp"), "myapp");
-  assert.equal(formatProjectName("/home/user/myapp/"), "myapp");
-  assert.equal(formatProjectName("myapp"), "myapp");
-  assert.equal(formatProjectName(""), "");
+test("splits project path with home abbreviation for the identity slot", () => {
+  assert.deepEqual(splitProjectPath("E:\\work\\demo", ""), { parent: "E:/work/", name: "demo" });
+  assert.deepEqual(splitProjectPath("C:\\Users\\dev\\myapp", "C:\\Users\\dev"), { parent: "~/", name: "myapp" });
+  assert.deepEqual(splitProjectPath("C:\\Users\\dev\\myapp\\deep\\pkg", "C:\\Users\\dev"), { parent: "~/myapp/deep/", name: "pkg" });
+  assert.deepEqual(splitProjectPath("C:\\Users\\dev", "C:\\Users\\dev"), { parent: "", name: "~" });
+  assert.deepEqual(splitProjectPath("/home/u/myapp", ""), { parent: "/home/u/", name: "myapp" });
+  assert.deepEqual(splitProjectPath("myapp", ""), { parent: "", name: "myapp" });
+  assert.deepEqual(splitProjectPath("", ""), { parent: "", name: "" });
+  assert.deepEqual(splitProjectPath("C:\\Users\\devx\\app", "C:\\Users\\dev"), { parent: "C:/Users/devx/", name: "app" });
 });
 
 test("ships a Chinese guide for every compact metric group", () => {

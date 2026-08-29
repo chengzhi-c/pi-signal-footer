@@ -7,16 +7,16 @@ import {
   formatContext,
   formatCost,
   formatDuration,
-  formatProjectName,
   formatTokens,
   getModelIcon,
   sanitizeStatusText,
   contextBarParts,
+  splitProjectPath,
 } from "./format.js";
 
 /** 字段开关：改这里即可定制 footer，无需动渲染逻辑。 */
 export const CONFIG = {
-  showProject: true,      // 项目名（当前目录名）
+  showProject: true,      // 项目路径（上级目录弱化，主目录缩写为 ~）
   showSessionName: true,  // 会话名（仅在 /session name 设置后出现）
   showDuration: true,     // 会话活跃跨度（首条消息 → 最新消息）
   showTurns: true,        // 交互轮次（assistant 消息数）
@@ -235,17 +235,17 @@ function renderFooter(
   const cacheGroup = `${cacheRead}   ${cacheWrite}`;
   const stats = [trafficGroup, cacheGroup, cost, timeGroup].filter(Boolean).join(pipe);
 
-  // 项目名 + 会话名：多项目/多会话时的身份前缀（可选链防旧版 pi 缺方法时 render 崩溃）。
-  // cwd 为用户主目录时显示 ~，避免把用户名当项目名展示。
-  const home = (process.env.HOME ?? process.env.USERPROFILE ?? "").replace(/[\\/]+$/, "");
-  const rawCwd = ctx.sessionManager.getCwd?.() ?? "";
-  const cwd = home && rawCwd.replace(/[\\/]+$/, "") === home ? "~" : rawCwd;
-  const project = CONFIG.showProject ? formatProjectName(cwd) : "";
-  const sessionName = project && CONFIG.showSessionName ? ctx.sessionManager.getSessionName?.() : undefined;
-  let identityLeft = model;
-  if (project) {
-    let projectSection = theme.bold(theme.fg("text", project));
+  // 项目槽位：完整路径——上级目录弱化、末级目录加粗、主目录缩写为 ~（可选链防旧版 pi 缺方法）
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const { parent, name } = splitProjectPath(ctx.sessionManager.getCwd?.() ?? "", home);
+  const sessionName = name && CONFIG.showSessionName ? ctx.sessionManager.getSessionName?.() : undefined;
+  let projectSection = "";
+  if (CONFIG.showProject && name) {
+    projectSection = `${parent ? theme.fg("muted", parent) : ""}${theme.bold(theme.fg("text", name))}`;
     if (sessionName) projectSection += theme.fg("muted", ` · ${sessionName}`);
+  }
+  let identityLeft = model;
+  if (projectSection) {
     identityLeft = `${projectSection} ${pipe} ${model}`;
   }
 
