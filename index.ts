@@ -10,6 +10,8 @@ import {
   formatSpeed,
   formatTokens,
   getModelIcon,
+  parseMcpStatus,
+  parseLspStatus,
   sanitizeStatusText,
   contextBarParts,
   splitProjectPath,
@@ -170,14 +172,45 @@ function modelField(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFoo
   return parts.join(pipe);
 }
 
+/**
+ * 扩展状态槽（右下角）：识别 pi-mcp-adapter / pi-lens 的已知文案后按本插件色板重排，
+ * 未知文案原样放行（保留源插件着色），对方改版时只会退化为原文而不会崩。
+ */
 function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme): string | undefined {
-  const statuses = Array.from(footerData.getExtensionStatuses().entries())
-    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-    .map(([, text]) => sanitizeStatusText(text))
-    .filter(Boolean);
+  const entries = Array.from(footerData.getExtensionStatuses().entries())
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
 
-  if (statuses.length === 0) return undefined;
-  return statuses.map(s => theme.fg("muted", s)).join(theme.fg("dim", " • "));
+  const chips: string[] = [];
+  for (const [, text] of entries) {
+    const clean = sanitizeStatusText(text);
+    if (!clean) continue;
+
+    const mcp = parseMcpStatus(clean);
+    if (mcp) {
+      if (mcp.enabled > 0) {
+        const color = mcp.connected === 0 ? "error" : mcp.connected < mcp.enabled ? "warning" : "text";
+        chips.push(`${theme.fg("muted", "⇄ MCP")} ${theme.fg(color, `${mcp.connected}/${mcp.enabled}`)}`);
+      }
+      continue;
+    }
+
+    const lsp = parseLspStatus(clean);
+    if (lsp) {
+      for (const chip of lsp) {
+        chips.push(
+          chip.failed
+            ? theme.fg("error", `LSP ✗ ${chip.names}`)
+            : `${theme.fg("muted", "LSP")} ${theme.fg("text", chip.names)}`,
+        );
+      }
+      continue;
+    }
+
+    chips.push(clean);
+  }
+
+  if (chips.length === 0) return undefined;
+  return chips.join(theme.fg("dim", " · "));
 }
 
 function truncate(value: string, width: number, theme: Theme): string {

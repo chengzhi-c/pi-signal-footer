@@ -3,7 +3,8 @@ export const LEGEND_LINES = [
   "↓ 输入: 本会话送往模型的请求 token；↑ 输出: 模型生成的 token。",
   "↻ 缓存读: 已复用的提示词缓存 token 及命中率；✎ 缓存写: 新写入缓存的 token。",
   "费用: 会话累计估算成本；⎔: 提示词上下文占用比例与窗口 token（已用/上限）。",
-  "模型: 图标 provider › model（图标按模型家族匹配）；✦ 推理: 思考等级；⎇ 分支: 当前 Git 分支；•: 扩展状态。",
+  "模型: 图标 provider › model（图标按模型家族匹配）；✦ 推理: 思考等级；⎇ 分支: 当前 Git 分支。",
+  "⇄ MCP: 已连接/启用的 MCP 服务器数（部分连接黄色、全断红色）；LSP: 活动中的语言服务器，✗ 标记失败，无活动不显示。",
   "项目: 当前完整路径（上级目录弱化、主目录缩写为 ~；含会话名，若已设置）；◷: 会话活跃跨度、交互轮次与最近一次响应的流式速率（tok/s）。",
   "关闭图例: /signal-footer hide",
 ];
@@ -119,5 +120,36 @@ export function formatContextBar(percent, width) {
 
 export function sanitizeStatusText(text) {
   return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
+}
+
+/** 外部插件写入的状态自带 ANSI 着色，解析前先剥掉。 */
+export function stripAnsi(text) {
+  return String(text ?? "").replace(/\u001B\[[0-9;]*m/g, "");
+}
+
+/** 识别 pi-mcp-adapter 状态：compact "MCP 1/2" 或 full "🔌 MCP: N servers enabled (M connected)"。 */
+export function parseMcpStatus(text) {
+  const raw = stripAnsi(sanitizeStatusText(text));
+  const compact = raw.match(/^MCP (\d+)\/(\d+)$/);
+  if (compact) return { connected: Number(compact[1]), enabled: Number(compact[2]) };
+  const full = raw.match(/^(?:🔌 )?MCP: (\d+) servers? enabled(?: \((\d+) connected\))?(?: \((\d+) disabled\))?$/);
+  if (full) return { connected: full[2] !== undefined ? Number(full[2]) : 0, enabled: Number(full[1]) };
+  return undefined;
+}
+
+/**
+ * 识别 pi-lens 的 LSP 状态段："LSP Active: a, b" / "LSP Failed: x" / "LSP Inactive"，
+ * Active 与 Failed 可能以 " · " 合并在同一条状态里。Inactive 返回空数组（无活动不显示）。
+ */
+export function parseLspStatus(text) {
+  const raw = stripAnsi(sanitizeStatusText(text));
+  if (raw === "LSP Inactive") return [];
+  const chips = [];
+  for (const segment of raw.split(" · ")) {
+    const match = segment.trim().match(/^LSP (Active|Failed): (.+)$/);
+    if (!match) return undefined;
+    chips.push({ failed: match[1] === "Failed", names: match[2].trim() });
+  }
+  return chips;
 }
 

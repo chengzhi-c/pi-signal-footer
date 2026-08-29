@@ -12,8 +12,11 @@ import {
   formatTokens,
   getModelIcon,
   formatSpeed,
+  parseMcpStatus,
+  parseLspStatus,
   sanitizeStatusText,
   splitProjectPath,
+  stripAnsi,
 } from "../format.js";
 
 test("formats token counts with compact, stable suffixes", () => {
@@ -57,6 +60,35 @@ test("contextBarParts yields colorable segments with stable math", () => {
 
 test("keeps extension statuses on one visual line", () => {
   assert.equal(sanitizeStatusText("Relay:\treal-time\nMCP: 1"), "Relay: real-time MCP: 1");
+});
+
+test("strips ANSI sequences before parsing foreign status text", () => {
+  assert.equal(stripAnsi("\u001B[36mMCP 1/1\u001B[0m"), "MCP 1/1");
+  assert.equal(stripAnsi("plain"), "plain");
+  assert.equal(stripAnsi(undefined), "");
+});
+
+test("parses pi-mcp-adapter compact and full status variants", () => {
+  assert.deepEqual(parseMcpStatus("MCP 1/1"), { connected: 1, enabled: 1 });
+  assert.deepEqual(parseMcpStatus("MCP 0/2"), { connected: 0, enabled: 2 });
+  assert.deepEqual(parseMcpStatus("\u001B[36mMCP 2/3\u001B[0m"), { connected: 2, enabled: 3 });
+  assert.deepEqual(parseMcpStatus("🔌 MCP: 1 server enabled (1 connected)"), { connected: 1, enabled: 1 });
+  assert.deepEqual(parseMcpStatus("🔌 MCP: 2 servers enabled"), { connected: 0, enabled: 2 });
+  assert.deepEqual(parseMcpStatus("🔌 MCP: 3 servers enabled (2 connected) (1 disabled)"), { connected: 2, enabled: 3 });
+  assert.equal(parseMcpStatus("MCP: connecting to relay..."), undefined);
+  assert.equal(parseMcpStatus("无关状态"), undefined);
+});
+
+test("parses pi-lens LSP segments and hides inactive state", () => {
+  assert.deepEqual(parseLspStatus("LSP Active: typescript, python"), [{ failed: false, names: "typescript, python" }]);
+  assert.deepEqual(parseLspStatus("\u001B[32mLSP Active: typescript\u001B[0m"), [{ failed: false, names: "typescript" }]);
+  assert.deepEqual(parseLspStatus("LSP Failed: clangd"), [{ failed: true, names: "clangd" }]);
+  assert.deepEqual(parseLspStatus("LSP Active: ts · LSP Failed: clangd"), [
+    { failed: false, names: "ts" },
+    { failed: true, names: "clangd" },
+  ]);
+  assert.deepEqual(parseLspStatus("LSP Inactive"), []);
+  assert.equal(parseLspStatus("未知扩展文案"), undefined);
 });
 
 test("automatically identifies model families by model ID", () => {
