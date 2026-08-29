@@ -1,9 +1,17 @@
 {
   "name": "pi-signal-footer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "A readable, responsive two-line status footer for Pi Coding Agent: model identity, token/cache/cost stats, adaptive context bar, session time and extension statuses.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chengzhi-c/pi-signal-footer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chengzhi-c/pi-signal-footer/issues"
+  },
+  "homepage": "https://github.com/chengzhi-c/pi-signal-footer#readme",
   "engines": {
     "node": ">=22.19.0"
   },

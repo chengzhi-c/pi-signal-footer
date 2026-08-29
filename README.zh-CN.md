@@ -18,13 +18,19 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 ## 安装
 
 ```sh
-pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.0
+pi install npm:pi-signal-footer
+
+# 固定版本
+pi install npm:pi-signal-footer@0.2.1
+
+# git tag
+pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.1
 
 # 从本地检出安装
 pi install ./pi-signal-footer
 ```
 
-git 安装固定在指定的 tag 上，`pi update` 不会自动升级；升级时用新 tag 重新执行安装命令。
+不带版本的 npm 安装随 `pi update --extensions` 更新；带版本号和 git 安装固定不动，升级时用新版本号或 tag 重新执行安装命令。
 
 需要 Pi Coding Agent ≥ 0.84 和 Node.js ≥ 22.19.0。
 
