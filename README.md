@@ -20,14 +20,13 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 ## Install
 
 ```sh
-# pinned release
 pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.0
 
 # from a local checkout
 pi install ./pi-signal-footer
 ```
 
-Git installs pin the tag: `pi update` never moves it. To upgrade, rerun the same command with the new tag.
+Git installs stay on the given tag; `pi update` won't move them. To upgrade, run the install command again with the new tag.
 
 Requires Pi Coding Agent ≥ 0.84 and Node.js ≥ 22.19.0. The development checks are exercised on Node.js 22.19 and 24 in CI.
 
@@ -69,7 +68,7 @@ npm run pack:check
 
 The TypeScript check skips declarations inside the Pi SDK dependency tree; the extension source is still checked strictly.
 
-Icons are plain-text glyphs only (measured width 1, no emoji variants) so terminal column math and colors stay under your control.
+Icons are plain-text glyphs only (measured width 1, no emoji variants), so they don't distort terminal column math or theming.
 
 ## License
 
