@@ -41,14 +41,27 @@ export function getModelIcon(modelId = "", provider = ""): string {
   return "◈";
 }
 
-/** token 数压缩为稳定后缀：999 → "999"，1250 → "1.3k"，32_000 → "32k"，5_100_000 → "5.1M"。 */
+/**
+ * token 数压缩为稳定后缀：999 → "999"，1250 → "1.3k"，32_000 → "32k"，5_100_000 → "5.1M"。
+ * 与 pi 官方 formatTokens 同构，但修掉了进位窗口毛刺（官方会输出 "1000k"/"10.0k"/"10.0M"），
+ * 属有意识偏离，勿"纠正"回官方实现；非法值钳为 0 同样是偏离（官方会输出 "-1"/"NaN"）。
+ */
 export function formatTokens(count: number): string {
   const value = Number.isFinite(count) && count > 0 ? count : 0;
 
   if (value < 1_000) return Math.round(value).toString();
-  if (value < 10_000) return `${(value / 1_000).toFixed(1)}k`;
-  if (value < 1_000_000) return `${Math.round(value / 1_000)}k`;
-  if (value < 10_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value < 10_000) {
+    const k = (value / 1_000).toFixed(1);
+    return k === "10.0" ? "10k" : `${k}k`;
+  }
+  if (value < 1_000_000) {
+    const k = Math.round(value / 1_000);
+    return k >= 1_000 ? `${(value / 1_000_000).toFixed(1)}M` : `${k}k`;
+  }
+  if (value < 10_000_000) {
+    const m = (value / 1_000_000).toFixed(1);
+    return m === "10.0" ? "10M" : `${m}M`;
+  }
   return `${Math.round(value / 1_000_000)}M`;
 }
 

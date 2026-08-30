@@ -27,6 +27,24 @@ test("formats token counts with compact, stable suffixes", () => {
   assert.equal(formatTokens(-1), "0");
 });
 
+test("keeps token suffixes from rounding up into the next magnitude", () => {
+  // Rounding must not push a value past the width its own tier advertises:
+  // 9_999 used to render "10.0k" while 10_000 renders "10k", and 999_500 used
+  // to render the 4-character "1000k" that is wider than the "1.0M" above it.
+  assert.equal(formatTokens(9_999), "10k");
+  assert.equal(formatTokens(999_500), "1.0M");
+  assert.equal(formatTokens(999_999), "1.0M");
+  assert.equal(formatTokens(9_999_999), "10M");
+
+  // Control: values already at a tier boundary keep their existing output.
+  assert.equal(formatTokens(10_000), "10k");
+
+  // Guardrails: the fix must not widen the rounding window.
+  assert.equal(formatTokens(999_499), "999k");
+  assert.equal(formatTokens(9_949), "9.9k");
+  assert.equal(formatTokens(9_500_000), "9.5M");
+});
+
 test("formats cost and context values without leaking invalid numbers", () => {
   assert.equal(formatCost(0.0874), "$0.087");
   assert.equal(formatCost(Number.NaN), "$0.000");
