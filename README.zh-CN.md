@@ -59,6 +59,18 @@ export const CONFIG = {
 };
 ```
 
+## 识别的上游状态文案
+
+MCP 与 LSP 徽标解析自其他扩展写入的状态字符串，本质是一份文本契约。无法识别的文案原样放行而非丢弃，这是有意的降级方式：上游改了措辞，你失去的是徽标样式，不是信息本身。
+
+| 来源 | 文案 | 解析函数 |
+|------|------|----------|
+| pi-mcp-adapter | `MCP 1/2` | `parseMcpStatus` |
+| pi-mcp-adapter | `🔌 MCP: N servers enabled (M connected) (K disabled)` | `parseMcpStatus` |
+| pi-lens | `LSP Active: a, b` / `LSP Failed: x` / `LSP Inactive` | `parseLspStatus` |
+
+上述扩展不是本包的依赖，因此表中文案只是写这几个解析函数时上游实际输出的样子，并未锚定到某个可核对的版本号。某个状态不再渲染成徽标时，说明上游措辞变了——带上确切文本提 issue 即可补上。LSP 的新状态按需增量解析，不预先穷举。
+
 ## 命令
 
 ```text

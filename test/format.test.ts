@@ -88,6 +88,9 @@ test("strips ANSI sequences before parsing foreign status text", () => {
   assert.equal(stripAnsi(undefined), "");
 });
 
+// Text contract with pi-mcp-adapter. These strings come from upstream status
+// text, which this package does not depend on and therefore cannot pin to a
+// version. See "Recognized upstream status text" in the README.
 test("parses pi-mcp-adapter compact and full status variants", () => {
   assert.deepEqual(parseMcpStatus("MCP 1/1"), { connected: 1, enabled: 1 });
   assert.deepEqual(parseMcpStatus("MCP 0/2"), { connected: 0, enabled: 2 });
@@ -99,6 +102,7 @@ test("parses pi-mcp-adapter compact and full status variants", () => {
   assert.equal(parseMcpStatus("无关状态"), undefined);
 });
 
+// Same text contract as the MCP test above.
 test("parses pi-lens LSP segments and hides inactive state", () => {
   assert.deepEqual(parseLspStatus("LSP Active: typescript, python"), [{ failed: false, names: "typescript, python" }]);
   assert.deepEqual(parseLspStatus("\u001B[32mLSP Active: typescript\u001B[0m"), [{ failed: false, names: "typescript" }]);

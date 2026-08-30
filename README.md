@@ -59,6 +59,25 @@ export const CONFIG = {
 };
 ```
 
+## Recognized upstream status text
+
+MCP and LSP badges are parsed from status strings that other extensions write,
+so they are a text contract. Unrecognized text is passed through unchanged
+rather than dropped, which is the intended degradation: a new upstream wording
+costs you the badge styling, not the information.
+
+| Source | Text | Parsed by |
+|--------|------|-----------|
+| pi-mcp-adapter | `MCP 1/2` | `parseMcpStatus` |
+| pi-mcp-adapter | `🔌 MCP: N servers enabled (M connected) (K disabled)` | `parseMcpStatus` |
+| pi-lens | `LSP Active: a, b` / `LSP Failed: x` / `LSP Inactive` | `parseLspStatus` |
+
+These extensions are not dependencies of this package, so the wording above is
+what their status text looked like when these parsers were written; it is not
+pinned to a version we can check. If a status stops rendering as a badge, the
+upstream wording changed — open an issue with the exact text and it will be
+added. New LSP states are parsed on demand rather than pre-declared.
+
 ## Commands
 
 ```text
