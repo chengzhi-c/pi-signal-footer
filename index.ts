@@ -61,6 +61,7 @@ type SessionEntries = ReturnType<ExtensionContext["sessionManager"]["getEntries"
 
 // 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
 // （剔除 TTFT/排队），message_end 用精确 usage.output 收口。
+// 模块级单例，假设单进程单会话；若将来同进程并发多会话，需收敛为 per-ctx 存储。
 const streamState: { timing: { tRequest: number; tFirst: number } | null; lastRate: string } = {
   timing: null,
   lastRate: "",
