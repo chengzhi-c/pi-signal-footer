@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import install, { CONFIG } from "../index.ts";
+import { LEGEND_LINES } from "../format.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 type Handler = (...args: unknown[]) => unknown;
@@ -299,6 +300,50 @@ test("hides the cache hit ratio when nothing was read from cache", async () => {
 
   assert.match(output, /↻ 0/);
   assert.doesNotMatch(output, /↻ 0 \(\d+%\)/);
+});
+
+test("sacrifices footer fields in the order the legend advertises", async () => {
+  // 图例用文字承诺了降级顺序，而顺序是实现里最容易漂移的东西，所以这里实测一次：
+  // 从宽往窄扫，记录每个字段首次消失的宽度，再按图例声称的顺序断言两两先后。
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
+  context.ctx.model = { provider: "opencode-go", id: "deepseek-v4-flash-0731", contextWindow: 200_000, reasoning: true };
+  context.ctx.thinkingLevel = "max";
+  context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\agent-demo";
+  context.footerData.getGitBranch = () => "main";
+  await startSession(handlers, context);
+  const footer = openFooter(context);
+
+  const disappearsAt = (test: (all: string) => boolean): number => {
+    for (let width = 200; width >= 1; width--) {
+      if (!test(footer.render(width).join("\n"))) return width + 1;
+    }
+    return 0;
+  };
+  const drops = {
+    bar: disappearsAt((a) => /\[[━─]/.test(a)),
+    numbers: disappearsAt((a) => a.includes("125k/200k")),
+    project: disappearsAt((a) => a.includes("agent-demo")),
+    branch: disappearsAt((a) => a.includes("main")),
+    reasoning: disappearsAt((a) => a.includes("max")),
+    model: disappearsAt((a) => a.includes("deepseek-v4-flash-0731")),
+  };
+
+  // 「上下文 → 项目 → 分支/推理 → 模型」：先让位的，首次消失宽度更大。
+  assert.ok(drops.bar > drops.project, `bar should drop before project: ${drops.bar} vs ${drops.project}`);
+  assert.ok(drops.numbers > drops.project, `numbers should drop before project: ${drops.numbers} vs ${drops.project}`);
+  assert.ok(drops.project > drops.branch, `project should drop before branch: ${drops.project} vs ${drops.branch}`);
+  assert.ok(drops.project > drops.reasoning, `project should drop before reasoning: ${drops.project} vs ${drops.reasoning}`);
+  assert.ok(drops.branch > drops.model, `branch should drop before the model name: ${drops.branch} vs ${drops.model}`);
+  assert.ok(drops.reasoning > drops.model, `reasoning should drop before the model name: ${drops.reasoning} vs ${drops.model}`);
+
+  // 图例里那句话必须与上面实测的顺序一致，否则就是文档在撒谎。
+  const advertised = LEGEND_LINES.find((line) => line.includes("让位"));
+  assert.ok(advertised, "legend no longer states the degradation order");
+  const at = (token: string) => advertised!.indexOf(token);
+  assert.ok(at("上下文") < at("项目"), `legend order wrong: ${advertised}`);
+  assert.ok(at("项目") < at("模型"), `legend order wrong: ${advertised}`);
+  assert.ok(at("模型") > at("上下文"), `legend must not put the model first: ${advertised}`);
 });
 
 test("keeps every rendered footer line within the requested width", async () => {

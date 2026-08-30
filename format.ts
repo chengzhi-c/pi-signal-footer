@@ -9,7 +9,7 @@ export const LEGEND_LINES = [
   "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
   "◷ 首末消息跨度 · 轮次（用户消息数）· 最近一次响应速率（tok/s，估算）。",
   "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
-  "变窄时按「模型 › 项目 › 上下文 › 其余」降级。关闭图例：/signal-footer hide",
+  "变窄时按「上下文 → 项目 → 分支/推理 → 模型」让位。关闭图例：/signal-footer hide",
 ];
 
 export type ProjectPathParts = { parent: string; name: string };
