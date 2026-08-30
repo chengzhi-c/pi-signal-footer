@@ -37,6 +37,11 @@ test("keeps token suffixes from rounding up into the next magnitude", () => {
   assert.equal(formatTokens(999_999), "1.0M");
   assert.equal(formatTokens(9_999_999), "10M");
 
+  // Fractional input must round into the tier it displays into, not sit in the
+  // tier below: 999.5 rounds to a thousand and belongs with "1.0k".
+  assert.equal(formatTokens(999.5), "1.0k");
+  assert.equal(formatTokens(999.4), "999");
+
   // Control: values already at a tier boundary keep their existing output.
   assert.equal(formatTokens(10_000), "10k");
 

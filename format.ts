@@ -53,11 +53,12 @@ export function getModelIcon(modelId = "", provider = ""): string {
  * token 数压缩为稳定后缀：999 → "999"，1250 → "1.3k"，32_000 → "32k"，5_100_000 → "5.1M"。
  * 与 pi 官方 formatTokens 同构，但修掉了进位窗口毛刺（官方会输出 "1000k"/"10.0k"/"10.0M"），
  * 属有意识偏离，勿"纠正"回官方实现；非法值钳为 0 同样是偏离（官方会输出 "-1"/"NaN"）。
+ * 先取整再选档：否则 999.5 会留在千位档却显示成四位数的 "1000"。
  */
 export function formatTokens(count: number): string {
-  const value = Number.isFinite(count) && count > 0 ? count : 0;
+  const value = Math.round(Number.isFinite(count) && count > 0 ? count : 0);
 
-  if (value < 1_000) return Math.round(value).toString();
+  if (value < 1_000) return value.toString();
   if (value < 10_000) {
     const k = (value / 1_000).toFixed(1);
     return k === "10.0" ? "10k" : `${k}k`;
