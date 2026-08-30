@@ -162,7 +162,8 @@ test("computes session duration from the earliest and latest entry timestamps", 
   );
   await startSession(handlers, context);
 
-  assert.match(renderLines(context).join("\n"), /1m/);
+  // 锚定到 ◷ 组，避免 /1m/ 被 "1min"、"1.0M" 之类无关子串蒙混过关
+  assert.match(renderLines(context).join("\n"), /◷ 1m ·/);
 });
 
 test("counts turns as user messages, not assistant responses", async () => {
@@ -362,6 +363,28 @@ test("keeps the model identity visible at every width that can show anything", a
   }
 });
 
+test("degrades the identity block instead of truncating it when the branch is long", async () => {
+  // 身份阶梯第三档（只留 provider › model）只有当 modelField 明显宽于 modelCore 时才起作用，
+  // 所以这里必须带上推理等级与长分支名；否则第二、三档字符串完全相同，测试形同虚设。
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
+  context.ctx.model = { provider: "opencode-go", id: "deepseek-v4-flash-0731", contextWindow: 200_000, reasoning: true };
+  context.ctx.thinkingLevel = "max";
+  context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\a-very-long-project-directory-name-here";
+  context.ctx.sessionManager.getSessionName = () => "fix-context-bar";
+  context.footerData.getGitBranch = () => "feature/a-very-long-branch-name-that-eats-space";
+  await startSession(handlers, context);
+  const footer = openFooter(context);
+
+  for (const width of [76, 80, 88, 96, 104]) {
+    const line1 = footer.render(width)[0];
+    assert.ok(line1.includes("deepseek-v4-flash-0731"), `model lost at width ${width}: ${line1}`);
+    // 降级而非截断：首行不应出现省略号，腾出的空间应让上下文保住数值。
+    assert.ok(!line1.includes("..."), `identity chopped instead of degraded at width ${width}: ${line1}`);
+    assert.ok(line1.includes("125k/200k"), `context numbers lost at width ${width}: ${line1}`);
+  }
+});
+
 test("never renders a richer context part without the parts that outrank it", async () => {
   // 上下文降级阶梯：条(装饰) → 数值 → 百分比(内容)。任一行里，靠后的部分出现时
   // 靠前的部分必须都在——否则说明丢错了顺序。跨宽度的档位切换不受此约束，
@@ -557,6 +580,52 @@ test("showBranch and showTurns toggles take effect", async () => {
   await withConfig({ showTurns: false }, () => {
     assert.doesNotMatch(renderLines(context, 160).join("\n"), /1轮/);
   });
+});
+
+test("showDuration, showSpeed and showCacheRatio toggles take effect", async () => {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.entries.push(
+    { type: "message", timestamp: "2026-01-01T00:01:00.000Z", message: { role: "user" } },
+    {
+      type: "message",
+      timestamp: "2026-01-01T00:02:00.000Z",
+      message: { role: "assistant", usage: { input: 10, output: 50, cacheRead: 900, cacheWrite: 100, cost: { total: 0.01 } } },
+    },
+  );
+  const times = [0, 1000, 3000];
+  const originalNow = Date.now;
+  Date.now = () => times.shift() ?? 3000;
+
+  try {
+    await startSession(handlers, context);
+    handlers.get("message_start")?.({ message: { role: "assistant" } }, context.ctx);
+    handlers.get("message_update")?.({ message: { role: "assistant" } }, context.ctx);
+    handlers.get("message_end")?.({ message: { role: "assistant", usage: { output: 100 } } }, context.ctx);
+
+    const all = renderLines(context, 160).join("\n");
+    assert.match(all, /◷ 1m/);
+    assert.match(all, /↻ 900 \(90%\)/);
+    assert.match(all, /50 tok\/s/);
+
+    await withConfig({ showDuration: false }, () => {
+      const out = renderLines(context, 160).join("\n");
+      assert.doesNotMatch(out, /◷ 1m/);
+      assert.match(out, /50 tok\/s/, "turning off the span must not drop the rate");
+    });
+    await withConfig({ showSpeed: false }, () => {
+      const out = renderLines(context, 160).join("\n");
+      assert.doesNotMatch(out, /tok\/s/);
+      assert.match(out, /◷ 1m/, "turning off the rate must not drop the span");
+    });
+    await withConfig({ showCacheRatio: false }, () => {
+      const out = renderLines(context, 160).join("\n");
+      assert.doesNotMatch(out, /\(90%\)/);
+      assert.match(out, /↻ 900/, "the read count itself must stay visible");
+    });
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("clears the previous response speed when a session shuts down", async () => {

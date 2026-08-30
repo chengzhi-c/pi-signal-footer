@@ -11,6 +11,7 @@ import {
   formatTokens,
   getModelIcon,
   formatSpeed,
+  normalizeContextPercent,
   parseMcpStatus,
   parseLspStatus,
   sanitizeStatusText,
@@ -130,7 +131,23 @@ test("automatically identifies model families by model ID", () => {
   assert.equal(getModelIcon("doubao-pro", "bytedance"), "𝐃");
   assert.equal(getModelIcon("mistral-large", "mistral"), "𝐌");
   assert.equal(getModelIcon("yi-large", "01-ai"), "①");
+  assert.equal(getModelIcon("minimax-abab6.5", ""), "⬡");
+  assert.equal(getModelIcon("abab6.5s-chat", "custom"), "⬡");
+  assert.equal(getModelIcon("some-model", "local"), "⌂");
+  assert.equal(getModelIcon("local-weights", "custom"), "⌂");
   assert.equal(getModelIcon("unknown-model", "custom"), "◈");
+});
+
+test("clamps an out-of-range context percentage instead of trusting it", () => {
+  // getContextUsage() comes from the model/provider layer, which has been known
+  // to report >100 while a response is still being counted.
+  assert.equal(normalizeContextPercent(150), 100);
+  assert.equal(normalizeContextPercent(-5), 0);
+  assert.equal(normalizeContextPercent(62.5), 62.5);
+  assert.equal(normalizeContextPercent(Number.NaN), undefined);
+  assert.equal(normalizeContextPercent(Number.POSITIVE_INFINITY), undefined);
+  assert.equal(normalizeContextPercent(undefined), undefined);
+  assert.equal(normalizeContextPercent("50"), undefined);
 });
 
 test("prefers named model families over OpenAI's loose -o1/-o3 suffixes", () => {
