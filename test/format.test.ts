@@ -174,6 +174,11 @@ test("splits project path with home abbreviation for the identity slot", () => {
   assert.deepEqual(splitProjectPath("", ""), { parent: "", name: "" });
   assert.deepEqual(splitProjectPath("C:\\Users\\devx\\app", "C:\\Users\\dev"), { parent: "C:/Users/devx/", name: "app" });
   assert.deepEqual(splitProjectPath("c:\\users\\dev\\myapp", "C:\\Users\\Dev"), { parent: "~/", name: "myapp" });
+
+  // UNC: collapsing the leading "\\" to "/" turns \\srv\share\pkg into
+  // /srv/share/pkg, which is a different (and nonexistent) local path.
+  assert.deepEqual(splitProjectPath("\\\\srv\\share\\pkg", ""), { parent: "//srv/share/", name: "pkg" });
+  assert.deepEqual(splitProjectPath("//srv/share/pkg", ""), { parent: "//srv/share/", name: "pkg" });
 });
 
 test("legend explains every glyph the footer renders", () => {

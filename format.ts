@@ -118,7 +118,9 @@ export function splitProjectPath(cwd = "", home = ""): ProjectPathParts {
 
   const parts = display.split(/[\\/]/).filter(Boolean);
   const name = parts[parts.length - 1] ?? "";
-  const root = /^[\\/]/.test(display) ? "/" : "";
+  // UNC 根必须保留双斜杠：折叠成 "/" 会让 \\srv\share\pkg 变成 /srv/share/pkg，
+  // 那是另一个（不存在的）本地路径。
+  const root = display.startsWith("\\\\") || display.startsWith("//") ? "//" : /^[\\/]/.test(display) ? "/" : "";
   const parent = parts.slice(0, -1).join("/");
   return { parent: `${root}${parent ? `${parent}/` : ""}`, name };
 }
