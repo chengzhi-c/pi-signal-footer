@@ -29,7 +29,7 @@ import {
 export const CONFIG = {
   showProject: true,      // 项目路径（上级目录弱化，主目录缩写为 ~）
   showSessionName: true,  // 会话名（仅在 /session name 设置后出现）
-  showDuration: true,     // 首条 → 末条消息的时间跨度
+  showDuration: true,     // 首条 → 末条会话记录的时间跨度（含非消息条目）
   showTurns: true,        // 轮次（用户消息数）
   showSpeed: true,        // 流式生成速率（tok/s，最近一次响应）
   showBranch: true,       // git 分支
@@ -70,6 +70,21 @@ const streamState: { timing: { tRequest: number; tFirst: number } | null; lastRa
 function resetStreamState(): void {
   streamState.timing = null;
   streamState.lastRate = "";
+}
+
+/**
+ * os.homedir() 覆盖的来源比 HOME ?? USERPROFILE 多（Windows 上还会回退到
+ * HOMEDRIVE+HOMEPATH），但它在完全解析不出主目录时抛 ERR_SYSTEM_ERROR，
+ * 而 render() 抛错会击穿 pi 的渲染循环（doRender 无 try/catch，宿主对
+ * uncaughtException 的处理是退出进程）。这里保留旧表达式的降级语义：拿不到
+ * 主目录就当没有，路径不缩写，footer 照常渲染。
+ */
+function resolveHome(): string {
+  try {
+    return homedir();
+  } catch {
+    return process.env.HOME ?? process.env.USERPROFILE ?? "";
+  }
 }
 
 function createUsageTotals(): UsageTotals {
@@ -340,7 +355,7 @@ function renderFooter(
 
   // 项目槽位：完整路径——上级目录弱化、末级目录加粗、主目录缩写为 ~。
   // 路径与会话名各自受开关控制，互不牵连：关掉路径仍应看得到会话名。
-  const home = homedir();
+  const home = resolveHome();
   const { parent, name } = splitProjectPath(ctx.sessionManager.getCwd(), home);
   const sessionName = CONFIG.showSessionName ? ctx.sessionManager.getSessionName() : undefined;
 
@@ -438,7 +453,10 @@ export default function (pi: ExtensionAPI): void {
   // session_start 覆盖全部路径：startup 与每次会话替换都走 bindExtensions → rebindCurrentSession，
   // reload 则在 invalidate 旧 runner 后直接发。替换路径上 pi 会先 resetExtensionUI() 卸掉旧
   // footer，因此这里重复安装不会泄漏组件。resources_discover 在 SDK 里只从这两处发出、
-  // 且总紧随 session_start，在那里再装一次只会让 footer 装两遍、并推翻用户刚执行的 off。
+  // 且总紧随 session_start，在那里再装一次只会让 footer 白装两遍（多一次 dispose + 重建）。
+  // 注意：off 只活到下一次 session_start，/reload 会发 session_start{reason:"reload"}，
+  // 所以 off 不跨 reload——扩展模块在 reload 时被重新求值（jiti moduleCache:false +
+  // clearExtensionCache），没有文件级持久化就无法跨 reload 记住它。
   pi.on("session_start", async (_event, ctx) => {
     resetStreamState();
     installFooter(ctx);

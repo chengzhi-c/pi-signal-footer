@@ -503,7 +503,7 @@ test("installs the footer exactly once per session start", async () => {
   assert.equal(context.branchListeners.size, 1);
 
   // resources_discover 在 SDK 里总紧随 session_start，插件不再挂该事件，
-  // 因此它不应触发第二次安装（旧实现会让 footer 装两遍并推翻 off）。
+  // 因此它不应触发第二次安装（旧实现会让 footer 白装两遍）。
   await handlers.get("resources_discover")?.({ type: "resources_discover", cwd: "C:\\work", reason: "startup" }, context.ctx);
   assert.equal(context.footerCalls.length, 1);
 });
@@ -548,6 +548,31 @@ test("reinstalls the footer when a replacement session starts", async () => {
   assert.equal(typeof second.footerCalls.at(-1), "function");
   // 新 ctx 渲染出的仍是可用内容
   assert.match(renderLines(second).join("\n"), /gpt-test/);
+});
+
+test("keeps rendering when the home directory cannot be resolved", async () => {
+  // os.homedir() 在完全解析不出主目录时抛 ERR_SYSTEM_ERROR，而 render() 抛错会击穿
+  // pi 的渲染循环：doRender 没有 try/catch，宿主对 uncaughtException 的处理是退出进程。
+  // 触发条件为 Windows 特有（POSIX 会回落到 passwd），其他平台上此测试只验证不抛错。
+  const savedHome = process.env.HOME;
+  const savedProfile = process.env.USERPROFILE;
+  process.env.USERPROFILE = "";
+  delete process.env.HOME;
+  try {
+    const { handlers } = createApi();
+    const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+    context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\agent-demo";
+    await startSession(handlers, context);
+
+    const output = renderLines(context, 140).join("\n");
+    assert.match(output, /agent-demo/, "the project path must still render");
+    assert.doesNotMatch(output, /~/, "with no home directory nothing may be abbreviated");
+  } finally {
+    if (savedProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedProfile;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+  }
 });
 
 test("handles legend, hide, and invalid command arguments", async () => {
