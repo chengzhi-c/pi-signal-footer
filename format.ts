@@ -1,16 +1,19 @@
+/**
+ * 图例。pi 的 widget 容器上限 10 行（InteractiveMode.MAX_WIDGET_LINES），且每行按
+ * 终端宽度折行，所以这里既不能超行数、也要控制单行长度——80 列下折行后仍需在 10 行内。
+ */
 export const LEGEND_LINES = [
-  "指标与符号图例",
-  "↓ 输入: 本会话送往模型的请求 token；↑ 输出: 模型生成的 token。",
-  "↻ 缓存读: 已复用的提示词缓存 token 及命中率；✎ 缓存写: 新写入缓存的 token。",
-  "费用($): 会话累计估算成本；⎔: 提示词上下文占用比例与窗口 token（已用/上限）。",
-  "模型: 图标 provider › model（图标按模型家族匹配）；✦ 推理: 思考等级；⎇ 分支: 当前 Git 分支。",
-  "⇄ MCP: 已连接/启用的 MCP 服务器数（未满黄色、全未连灰色：懒连接的服务器首次使用前不在线属正常）；LSP: 活动中的语言服务器，✗ 标记失败，无活动不显示。",
-  "项目: 当前完整路径（上级目录弱化、主目录缩写为 ~；含会话名，若已设置）；◷: 会话活跃跨度、交互轮次与最近一次响应的流式速率（tok/s）。",
-  "关闭图例: /signal-footer hide",
+  "↓ 输入 ↑ 输出 token；↻ 缓存读（命中率 = 读÷(读+写)）；✎ 缓存写；$ 累计成本。",
+  "⎔ 上下文：百分比 + 占用条 + 已用/窗口 token；≥50% 警告，≥75% 错误，? 未知。",
+  "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
+  "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
+  "◷ 首末消息跨度 · 轮次（用户消息数）· 最近一次响应速率（tok/s）。",
+  "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
+  "变窄时按「模型 › 项目 › 上下文 › 其余」降级。关闭图例：/signal-footer hide",
 ];
 
 export type ProjectPathParts = { parent: string; name: string };
-export type ContextBarParts = { fill: string; track: string; unknown: boolean };
+export type ContextBarParts = { fill: string; track: string };
 export type LspChip = { failed: boolean; names: string };
 export type McpStatus = { connected: number; enabled: number };
 
@@ -54,6 +57,11 @@ export function formatCost(cost: number): string {
   return `$${value.toFixed(3)}`;
 }
 
+/**
+ * 缓存写入命中率：读 ÷ (读 + 写)。写为 0 表示缓存全热，返回 100%。
+ * 口径与 pi 原生 footer 的 CH 不同（后者按单次请求算 读/(输入+读+写)），
+ * 这里衡量的是"写进缓存的提示词被复用的比例"，跨会话累计。
+ */
 export function formatCacheHitRatio(read: number, write: number): string {
   const r = Number.isFinite(read) && read > 0 ? read : 0;
   const w = Number.isFinite(write) && write > 0 ? write : 0;
@@ -102,6 +110,7 @@ export function splitProjectPath(cwd = "", home = ""): ProjectPathParts {
 const CONTEXT_BAR_FILLED = "━";
 const CONTEXT_BAR_EMPTY = "─";
 
+/** 上下文读数归一化到 [0,100]；非数值（含 null/undefined/NaN）返回 undefined 表示未知。 */
 export function normalizeContextPercent(percent: unknown): number | undefined {
   if (typeof percent !== "number" || !Number.isFinite(percent)) return undefined;
   return Math.min(100, Math.max(0, percent));
@@ -116,17 +125,14 @@ export function formatContext(tokens: number | null | undefined, contextWindow: 
   return `${used === undefined ? "?" : formatTokens(used)}/${window === undefined ? "?" : formatTokens(window)}`;
 }
 
-/** 唯一的填充数学：返回已填充/剩余轨道字符串，供着色组装与纯文本输出共用。 */
-export function contextBarParts(percent: unknown, width: number): ContextBarParts {
-  const length = Number.isInteger(width) && width > 0 ? width : 1;
-  const normalizedPercent = normalizeContextPercent(percent);
-
-  if (normalizedPercent === undefined) return { fill: "", track: "?".repeat(length), unknown: true };
-
-  const filled = normalizedPercent === 0
-    ? 0
-    : Math.max(1, Math.round((normalizedPercent / 100) * length));
-  return { fill: CONTEXT_BAR_FILLED.repeat(filled), track: CONTEXT_BAR_EMPTY.repeat(length - filled), unknown: false };
+/**
+ * 唯一的填充数学：返回已填充/剩余轨道字符串，供着色组装与纯文本输出共用。
+ * percent 由调用方经 normalizeContextPercent 钳位到 [0,100]，未知时不画条。
+ */
+export function contextBarParts(percent: number, width: number): ContextBarParts {
+  const length = Math.max(1, Math.floor(width));
+  const filled = percent === 0 ? 0 : Math.max(1, Math.round((percent / 100) * length));
+  return { fill: CONTEXT_BAR_FILLED.repeat(filled), track: CONTEXT_BAR_EMPTY.repeat(length - filled) };
 }
 
 export function sanitizeStatusText(text: unknown): string {

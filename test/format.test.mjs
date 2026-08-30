@@ -17,6 +17,7 @@ import {
   splitProjectPath,
   stripAnsi,
 } from "../format.ts";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 test("formats token counts with compact, stable suffixes", () => {
   assert.equal(formatTokens(213), "213");
@@ -40,12 +41,16 @@ test("calculates cache hit ratios properly", () => {
   assert.equal(formatCacheHitRatio(5_100_000, 137_000), "97%");
   assert.equal(formatCacheHitRatio(0, 0), "0%");
   assert.equal(formatCacheHitRatio(100, 100), "50%");
+  // 写为 0 = 缓存全热，是最省钱的理想状态，必须显示而不是留空
   assert.equal(formatCacheHitRatio(100, 0), "100%");
 });
 
 test("contextBarParts yields colorable segments with stable math", () => {
-  assert.deepEqual(contextBarParts(50, 8), { fill: "━━━━", track: "────", unknown: false });
-  assert.deepEqual(contextBarParts(null, 3), { fill: "", track: "???", unknown: true });
+  assert.deepEqual(contextBarParts(50, 8), { fill: "━━━━", track: "────" });
+  assert.deepEqual(contextBarParts(0, 4), { fill: "", track: "────" });
+  // 非零占比换算不足一格时也要画出至少一格，避免看起来完全空闲
+  assert.deepEqual(contextBarParts(1, 20), { fill: "━", track: "─".repeat(19) });
+  assert.deepEqual(contextBarParts(100, 5), { fill: "━━━━━", track: "" });
   assert.equal(contextBarParts(50, 8).fill.length + contextBarParts(50, 8).track.length, 8);
 });
 
@@ -148,7 +153,21 @@ test("splits project path with home abbreviation for the identity slot", () => {
 test("legend explains every glyph the footer renders", () => {
   const guide = LEGEND_LINES.join(" ");
   // 与 index.ts 渲染符号同步：新增或改名符号时，同步更新图例与此清单
-  for (const glyph of ["↓", "↑", "↻", "✎", "⎔", "⇄", "◷", "⎇", "✦", "MCP", "LSP", "$"]) {
+  for (const glyph of ["↓", "↑", "↻", "✎", "⎔", "⇄", "◷", "⎇", "✦", "›", "·", "MCP", "LSP", "✗", "$"]) {
     assert.ok(guide.includes(glyph), `legend missing "${glyph}"`);
   }
+});
+
+test("legend fits pi's widget line budget even after terminal wrapping", () => {
+  // pi 的 InteractiveMode.MAX_WIDGET_LINES = 10：超出的行静默丢弃。图例每行由
+  // Text(line, 1, 0) 渲染，左右各占 1 列 padding，所以 80 列终端只有 78 列可写。
+  // 必须按 visibleWidth 计宽——中文字符占 2 列，用 length 会低估近一半。
+  const MAX_WIDGET_LINES = 10;
+  const NARROWEST_TERMINAL = 80;
+  const WIDGET_PADDING = 2;
+  const content = NARROWEST_TERMINAL - WIDGET_PADDING;
+
+  assert.ok(LEGEND_LINES.length <= MAX_WIDGET_LINES, `legend has ${LEGEND_LINES.length} raw lines`);
+  const visualLines = LEGEND_LINES.reduce((sum, line) => sum + Math.ceil(visibleWidth(line) / content), 0);
+  assert.ok(visualLines <= MAX_WIDGET_LINES, `legend needs ${visualLines} visual lines at ${NARROWEST_TERMINAL} columns`);
 });

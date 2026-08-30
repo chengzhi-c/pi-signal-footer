@@ -11,9 +11,9 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 
 The first line shows the project path, session name, provider and model, thinking level, and git branch. Model icons are matched by model family, and paths under the home directory are abbreviated to `~`. The context bar takes whatever width is left and shows the percentage plus used and window tokens: warning color at 50%, error color at 75%, `?` while usage is unknown.
 
-The second line shows input and output tokens, cache read with hit ratio, cache write, accumulated cost, session time and turns, and the streaming rate of the last response. MCP and LSP statuses written by other extensions are rendered in the same style; unrecognized text passes through unchanged.
+The second line shows input and output tokens, cache read with hit ratio, cache write, accumulated cost, the span from the first to the last message, turn count (user messages), and the streaming rate of the last response. MCP and LSP statuses written by other extensions are rendered in the same style; unrecognized text passes through unchanged.
 
-On narrower terminals the two lines split into three and then six, and fields that no longer fit are truncated. All colors come from the active Pi theme. Icons are plain-text glyphs one column wide, without emoji variants.
+On narrower terminals the two lines split into three, then into one field per line. When space runs out the context bar degrades first (bar, then the token numbers, then the percentage), and the project path drops out before the model name — the model you are talking to is the last thing to go. All colors come from the active Pi theme. Icons are plain-text glyphs one column wide, without emoji variants.
 
 ## Install
 
@@ -23,12 +23,12 @@ On narrower terminals the two lines split into three and then six, and fields th
 pi install npm:pi-signal-footer
 ```
 
-Tracks the latest release and updates with `pi update --extensions`. To pin a version, use `pi install npm:pi-signal-footer@0.2.1`.
+Tracks the latest release and updates with `pi update --extensions`. To pin a version, use `pi install npm:pi-signal-footer@<version>`.
 
 ### Git
 
 ```sh
-pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.1
+pi install git:github.com/chengzhi-c/pi-signal-footer@v<version>
 ```
 
 Stays on the tag; to upgrade, rerun the command with the new tag.
@@ -51,8 +51,8 @@ Field visibility is a single `CONFIG` object at the top of `index.ts`:
 export const CONFIG = {
   showProject: true,      // full project path (parent dirs dimmed, home abbreviated to ~)
   showSessionName: true,  // session name, when set
-  showDuration: true,     // active time span
-  showTurns: true,        // assistant turns
+  showDuration: true,     // span from the first to the last message
+  showTurns: true,        // turns (user messages)
   showSpeed: true,        // streaming tok/s of the last response
   showBranch: true,       // git branch
   showCacheRatio: true,   // cache hit ratio

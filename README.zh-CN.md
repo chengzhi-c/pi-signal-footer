@@ -11,9 +11,9 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 
 第一行显示项目路径、会话名、provider 和模型、思考等级、Git 分支。模型图标按模型家族匹配，主目录下的路径缩写为 `~`。上下文占用条用掉行内剩余宽度，显示百分比与已用/窗口 token：占用 ≥50% 变警告色，≥75% 变错误色，未知时显示 `?`。
 
-第二行显示输入/输出 token、缓存读与命中率、缓存写、累计成本、会话时长与轮次，以及最近一次响应的流式速率。其他扩展写入的 MCP、LSP 状态按同一套样式渲染，识别不了的文案原样显示。
+第二行显示输入/输出 token、缓存读与命中率、缓存写、累计成本、首末消息时间跨度与轮次（按用户消息计），以及最近一次响应的流式速率。其他扩展写入的 MCP、LSP 状态按同一套样式渲染，识别不了的文案原样显示。
 
-终端变窄时两行先拆成三行、再拆成六行，放不下的字段截断显示。颜色全部取自当前 Pi 主题，图标是实测宽度为 1 的纯文本字形。
+终端变窄时两行先拆成三行、再拆成每行一个字段。空间不足时上下文先降级（丢占用条，再丢 token 数值，最后丢百分比），项目路径也早于模型名让位——"正在跟哪个模型说话"是最后才会消失的信息。颜色全部取自当前 Pi 主题，图标是实测宽度为 1 的纯文本字形。
 
 ## 安装
 
@@ -23,12 +23,12 @@ agent-demo · fix-context-bar │ opencode-go › ◎ deepseek-v4-flash-0731 │
 pi install npm:pi-signal-footer
 ```
 
-不带版本号，随 `pi update --extensions` 自动更新。固定版本用 `pi install npm:pi-signal-footer@0.2.1`。
+不带版本号，随 `pi update --extensions` 自动更新。固定版本用 `pi install npm:pi-signal-footer@<版本号>`。
 
 ### Git
 
 ```sh
-pi install git:github.com/chengzhi-c/pi-signal-footer@v0.2.1
+pi install git:github.com/chengzhi-c/pi-signal-footer@v<版本号>
 ```
 
 固定在 tag 上；升级时用新 tag 重新执行这条命令。
@@ -51,8 +51,8 @@ pi install ./pi-signal-footer
 export const CONFIG = {
   showProject: true,      // 完整项目路径（上级目录弱化，主目录缩写为 ~）
   showSessionName: true,  // 会话名（设置后显示）
-  showDuration: true,     // 活跃时间跨度
-  showTurns: true,        // 交互轮次
+  showDuration: true,     // 首条 → 末条消息的时间跨度
+  showTurns: true,        // 轮次（用户消息数）
   showSpeed: true,        // 最近一次响应的流式 tok/s
   showBranch: true,       // Git 分支
   showCacheRatio: true,   // 缓存命中率
