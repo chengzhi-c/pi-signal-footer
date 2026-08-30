@@ -6,6 +6,7 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { homedir } from "node:os";
 
 import {
   LEGEND_LINES,
@@ -338,7 +339,7 @@ function renderFooter(
 
   // 项目槽位：完整路径——上级目录弱化、末级目录加粗、主目录缩写为 ~。
   // 路径与会话名各自受开关控制，互不牵连：关掉路径仍应看得到会话名。
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const home = homedir();
   const { parent, name } = splitProjectPath(ctx.sessionManager.getCwd(), home);
   const sessionName = CONFIG.showSessionName ? ctx.sessionManager.getSessionName() : undefined;
 
