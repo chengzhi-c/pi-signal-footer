@@ -1,15 +1,18 @@
 /**
- * 图例。pi 的 widget 容器上限 10 行（InteractiveMode.MAX_WIDGET_LINES），且每行按
- * 终端宽度折行，所以这里既不能超行数、也要控制单行长度——80 列下折行后仍需在 10 行内。
+ * 图例。pi 的 widget 容器按数组条目截断（InteractiveMode.MAX_WIDGET_LINES = 10，
+ * 超出条目被静默丢弃），而每条又会按终端宽度折行占多行，所以条目数与单行长度都要控制：
+ * 单行控制在 76 列以内（80 列终端减去 Text 左右各 1 列 padding 后仍不折行），
+ * 条目数则留在 10 以下。两者由 format 测试的预算用例把关，勿在此写死当前条数。
  */
 export const LEGEND_LINES = [
   "↓ 输入 ↑ 输出 token；↻ 缓存读（命中率 = 读÷(读+写)）；✎ 缓存写；$ 累计成本。",
   "⎔ 上下文：百分比 + 占用条 + 已用/窗口 token；≥50% 警告，≥75% 错误，? 未知。",
   "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
   "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
-  "◷ 首末消息跨度 · 轮次（用户消息数）· 最近一次响应速率（tok/s，估算）。",
+  "◷ 首末记录跨度 · 轮次（用户消息数）· 最近一次响应速率（tok/s，估算）。",
   "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
-  "变窄时按「上下文 → 项目 → 分支/推理 → 模型」让位。关闭图例：/signal-footer hide",
+  "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
+  "关闭图例：/signal-footer hide",
 ];
 
 export type ProjectPathParts = { parent: string; name: string };
@@ -19,8 +22,13 @@ export type McpStatus = { connected: number; enabled: number };
 
 /**
  * 图标按「provider/model」子串匹配模型家族。子串匹配是有意的（gpt4、chatgpt-*、
- * o1-pro 等真实变体依赖它）；OpenAI 宽匹配组放在所有命名家族之后，避免他牌
- * -o1/-o3 后缀模型误挂 OpenAI 图标。
+ * o1-pro 等真实变体依赖它）；OpenAI 宽匹配组放在所有命名家族之后，让已命中命名家族
+ * 的 -o1/-o3 后缀（如 qwen-o1）保住自家图标——注意它只保护这一类，未命中任何家族的
+ * phi4-o3 仍会落到 OpenAI 组。
+ *
+ * 已知子串冲突：provider "ollama" 含 "llama"，所以 ollama 上跑的任意模型都会先命中
+ * llama 组拿到 𝕃，⌂ 实际只能由 "local" 触发。改判需区分"模型本身是 Llama"与
+ * "仅托管方是 ollama"，属行为变更，暂按现状记录。
  */
 export function getModelIcon(modelId = "", provider = ""): string {
   const combined = `${provider}/${modelId}`.toLowerCase();
@@ -73,7 +81,7 @@ export function formatCost(cost: number): string {
 /**
  * 缓存写入命中率：读 ÷ (读 + 写)。写为 0 表示缓存全热，返回 100%。
  * 口径与 pi 原生 footer 的 CH 不同（后者按单次请求算 读/(输入+读+写)），
- * 这里衡量的是"写进缓存的提示词被复用的比例"，跨会话累计。
+ * 这里衡量的是"写进缓存的提示词被复用的比例"，本会话内累计。
  */
 export function formatCacheHitRatio(read: number, write: number): string {
   const r = Number.isFinite(read) && read > 0 ? read : 0;
