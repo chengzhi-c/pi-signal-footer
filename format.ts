@@ -83,8 +83,10 @@ export function formatCacheHitRatio(read: number, write: number): string {
   return `${Math.round((r / total) * 100)}%`;
 }
 
+/** 会话活跃跨度。不足一分钟按秒显示，否则首分钟恒显 "0m"。 */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "0m";
+  if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);

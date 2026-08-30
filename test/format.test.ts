@@ -140,7 +140,12 @@ test("formats session duration in compact wall-clock units", () => {
   assert.equal(formatDuration(0), "0m");
   assert.equal(formatDuration(-5), "0m");
   assert.equal(formatDuration(Number.NaN), "0m");
-  assert.equal(formatDuration(59_000), "0m");
+  // Sub-minute sessions are the common case for a quick question; "0m" reads
+  // as "no time elapsed". Seconds are shown until the first full minute.
+  assert.equal(formatDuration(59_000), "59s");
+  assert.equal(formatDuration(30_000), "30s");
+  assert.equal(formatDuration(1_000), "1s");
+  assert.equal(formatDuration(999), "0s");
   assert.equal(formatDuration(61_000), "1m");
   assert.equal(formatDuration(45 * 60_000), "45m");
   assert.equal(formatDuration(2 * 3_600_000 + 13 * 60_000), "2h13m");
