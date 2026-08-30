@@ -24,7 +24,7 @@ All notable changes to this extension are documented here.
   one question with several responses displayed as multiple turns. **This is a
   semantic change: existing numbers will read lower.**
 - The legend fits narrow terminals. At 80 columns it wrapped to 11 lines and
-  now takes 7.
+  now takes 8.
 - Token counts no longer round up into the next magnitude: `9999` renders
   `10k` rather than `10.0k`, and `999500` renders `1.0M` rather than the wider
   `1000k`.
