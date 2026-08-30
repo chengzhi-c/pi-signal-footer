@@ -29,7 +29,7 @@
     "tui"
   ],
   "scripts": {
-    "test": "tsx --test test/format.test.mjs test/index.test.ts",
+    "test": "tsx --test test/format.test.ts test/index.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run test && npm run typecheck",
     "pack:check": "npm pack --dry-run"
