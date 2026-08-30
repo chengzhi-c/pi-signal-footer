@@ -150,6 +150,9 @@ test("formats session duration in compact wall-clock units", () => {
 test("formats streaming speed and stays silent without data", () => {
   assert.equal(formatSpeed(950, 10_000), "95 tok/s");
   assert.equal(formatSpeed(999, 1_000), "999 tok/s");
+  // A slow local model is real, but "0 tok/s" reads as a stalled stream.
+  assert.equal(formatSpeed(100, 600_000), "<1 tok/s");
+  assert.equal(formatSpeed(1, 3_000), "<1 tok/s");
   assert.equal(formatSpeed(0, 5_000), "");
   assert.equal(formatSpeed(100, 0), "");
   assert.equal(formatSpeed(-5, 1_000), "");

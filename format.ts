@@ -91,10 +91,11 @@ export function formatDuration(ms: number): string {
   return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-/** 最近一次响应的生成速率：输出 token ÷ 首 token 到响应结束的墙钟时间。 */
+/** 最近一次响应的生成速率：输出 token ÷ 首 token 到响应结束的墙钟时间。<1 tok/s 显示 <1，避免被读成停滞。 */
 export function formatSpeed(tokens: number, ms: number): string {
   if (!Number.isFinite(tokens) || !Number.isFinite(ms) || tokens <= 0 || ms <= 0) return "";
-  return `${Math.round(tokens / (ms / 1000))} tok/s`;
+  const rate = tokens / (ms / 1000);
+  return rate < 1 ? "<1 tok/s" : `${Math.round(rate)} tok/s`;
 }
 
 /** 项目槽位：完整路径，主目录缩写为 ~。返回弱化的上级目录与加粗的末级目录名。 */
