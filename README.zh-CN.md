@@ -9,7 +9,7 @@ C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4
 ↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                             ⇄ MCP 1/1 · LSP typescript
 ```
 
-取自 140 列终端；两行都会被补齐到终端全宽，所以状态徽标贴在最右侧。
+取自 140 列且存在扩展状态的终端；带状态的那一行会补齐到终端全宽，所以徽标贴在最右侧。
 
 第一行显示项目路径、会话名、provider 和模型、思考等级、Git 分支。模型图标按模型家族匹配，主目录下的路径缩写为 `~`。上下文占用条最多占 20 列，显示百分比与已用/窗口 token：占用 ≥50% 变警告色，≥75% 变错误色，未知时显示 `?`。
 
@@ -43,23 +43,27 @@ pi install ./pi-signal-footer
 
 加载磁盘上的目录，适合开发调试。
 
-基于 Pi Coding Agent 0.84.4 与 Node.js 22.19.0（`engines` 声明的下限）开发并测试。对 Pi 版本的要求不会被机器强制校验：本扩展以 TypeScript 源码形式加载，缺少所需 API 的旧版 Pi 会在 footer 安装或首次渲染时抛错，而不是在安装阶段被拒。
+基于 Pi Coding Agent 0.84.4 与 Node.js 22.19.0（`engines` 声明的下限）开发并测试。包通过 peer dependency（`>=0.84.4`）声明 Pi 随宿主提供的模块。`pi install` 不会执行 npm peer，旧宿主仍会加载 TypeScript 源码；本扩展在 `session_start` 警告一次，随后保留 Pi 原生状态栏，不调用 custom-footer API。
 
 ## 配置
 
-字段显隐由 `index.ts` 顶部的 `CONFIG` 对象控制：
+设置写在 Pi 代理目录（`getAgentDir()`，通常是 `~/.pi/agent/`）下的 `pi-signal-footer.json`。文件缺失使用下列默认值；JSON 无效或文件不可读时同样回退默认值并只告警一次。合法的部分对象可以省略字段，未知键忽略；已知键类型错误时该字段使用默认值，告警会列出具体字段（允许的语言是 `auto`、`zh` 和 `en`）。
 
-```ts
-export const CONFIG = {
-  showProject: true,      // 完整项目路径（上级目录弱化，主目录缩写为 ~）
-  showSessionName: true,  // 会话名（设置后显示）
-  showDuration: true,     // 首条 → 末条会话记录的时间跨度（含非消息条目）
-  showTurns: true,        // 轮次（用户消息数）
-  showSpeed: true,        // 最近一次响应的流式 tok/s
-  showBranch: true,       // Git 分支
-  showCacheRatio: true,   // 缓存命中率
-};
+```json
+{
+  "enabled": true,
+  "locale": "auto",
+  "showProject": true,
+  "showSessionName": true,
+  "showDuration": true,
+  "showTurns": true,
+  "showSpeed": true,
+  "showBranch": true,
+  "showCacheRatio": true
+}
 ```
+
+`/signal-footer set`、`/signal-footer locale` 与 `/signal-footer off|on` 会写这个文件。不再靠改包内 `index.ts`；若你以前改过 `CONFIG`，把开关拷到这里。
 
 ## 识别的上游状态文案
 
@@ -80,11 +84,17 @@ MCP 与 LSP 徽标解析自其他扩展写入的状态字符串，本质是一�
 ## 命令
 
 ```text
-/signal-footer legend   在编辑器上方显示指标图例
-/signal-footer hide     隐藏图例
-/signal-footer off      临时切回原生状态栏（本会话）
-/signal-footer on       重新启用本状态栏（本会话）
+/signal-footer legend              在编辑器上方显示指标图例
+/signal-footer hide                隐藏图例（本会话）
+/signal-footer off                 切回原生状态栏并记住该选择
+/signal-footer on                  启用本状态栏并记住该选择
+/signal-footer status              显示路径、启用状态、有效语言、加载错误和上次加载的无效字段
+/signal-footer locale auto|zh|en   持久化界面语言（auto 跟随宿主 locale）
+/signal-footer set <show*> <on|off>
 ```
+
+`show*` 可用键为：`showProject`、`showSessionName`、`showDuration`、
+`showTurns`、`showSpeed`、`showBranch`、`showCacheRatio`。
 
 ## 开发
 
@@ -93,9 +103,11 @@ npm test
 npm run typecheck
 npm run check
 npm run pack:check
+npm run bench:footer
 ```
 
 `npm run check` 跑测试套件和 TypeScript 检查，`npm run pack:check` 预览将随包发布的文件。TypeScript 检查跳过 Pi SDK 依赖树内的声明，扩展源码本身按严格模式检查。
+`npm run bench:footer` 是本地可选基准，用于观察渲染耗时和输出宽度，不作为 CI 门禁。
 
 ## 许可证
 

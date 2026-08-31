@@ -9,11 +9,14 @@ import {
   formatCost,
   formatDuration,
   formatTokens,
+  formatTurns,
   getModelIcon,
   formatSpeed,
+  legendLines,
   normalizeContextPercent,
   parseMcpStatus,
   parseLspStatus,
+  resolveLocale,
   sanitizeStatusText,
   splitProjectPath,
   stripAnsi,
@@ -29,9 +32,7 @@ test("formats token counts with compact, stable suffixes", () => {
 });
 
 test("keeps token suffixes from rounding up into the next magnitude", () => {
-  // Rounding must not push a value past the width its own tier advertises:
-  // 9_999 used to render "10.0k" while 10_000 renders "10k", and 999_500 used
-  // to render the 4-character "1000k" that is wider than the "1.0M" above it.
+  // Rounding must not produce a label wider than its own tier.
   assert.equal(formatTokens(9_999), "10k");
   assert.equal(formatTokens(999_500), "1.0M");
   assert.equal(formatTokens(999_999), "1.0M");
@@ -69,6 +70,11 @@ test("calculates cache hit ratios properly", () => {
   assert.equal(formatCacheHitRatio(100, 0), "100%");
 });
 
+test("keeps cache hit ratios correct when finite counts would overflow their sum", () => {
+  assert.equal(formatCacheHitRatio(Number.MAX_VALUE, Number.MAX_VALUE), "50%");
+  assert.equal(formatCacheHitRatio(Number.MAX_VALUE, 1), "100%");
+});
+
 test("contextBarParts yields colorable segments with stable math", () => {
   assert.deepEqual(contextBarParts(50, 8), { fill: "━━━━", track: "────" });
   assert.deepEqual(contextBarParts(0, 4), { fill: "", track: "────" });
@@ -76,6 +82,17 @@ test("contextBarParts yields colorable segments with stable math", () => {
   assert.deepEqual(contextBarParts(1, 20), { fill: "━", track: "─".repeat(19) });
   assert.deepEqual(contextBarParts(100, 5), { fill: "━━━━━", track: "" });
   assert.equal(contextBarParts(50, 8).fill.length + contextBarParts(50, 8).track.length, 8);
+  assert.doesNotThrow(() => contextBarParts(Number.NaN, 8));
+  assert.doesNotThrow(() => contextBarParts(undefined, 8));
+  assert.deepEqual(contextBarParts(Number.NaN, 8), { fill: "", track: "────────" });
+});
+
+test("does not create a bar wider than a non-positive or non-finite width", () => {
+  for (const width of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.doesNotThrow(() => contextBarParts(50, width));
+    const parts = contextBarParts(50, width);
+    assert.equal(visibleWidth(parts.fill + parts.track), 0);
+  }
 });
 
 test("keeps extension statuses on one visual line", () => {
@@ -94,6 +111,13 @@ test("strips ANSI sequences before parsing foreign status text", () => {
   assert.equal(stripAnsi(undefined), "");
 });
 
+test("strips OSC 8 hyperlinks before parsing MCP status", () => {
+  assert.deepEqual(
+    parseMcpStatus("\u001B]8;;http://x\u0007MCP 1/1\u001B]8;;\u0007"),
+    { connected: 1, enabled: 1 },
+  );
+});
+
 // Text contract with pi-mcp-adapter. These strings come from upstream status
 // text, which this package does not depend on and therefore cannot pin to a
 // version. See "Recognized upstream status text" in the README.
@@ -108,7 +132,20 @@ test("parses pi-mcp-adapter compact and full status variants", () => {
   assert.equal(parseMcpStatus("无关状态"), undefined);
 });
 
-// Same text contract as the MCP test above.
+test("rejects MCP statuses with more connections than enabled servers", () => {
+  assert.equal(parseMcpStatus("MCP 3/2"), undefined);
+});
+
+test("rejects MCP statuses beyond the safe integer range", () => {
+  const huge = "9".repeat(400);
+  assert.equal(parseMcpStatus(`MCP ${huge}/${huge}`), undefined);
+});
+
+test("rejects finite MCP counts beyond the safe integer range", () => {
+  const unsafe = "9007199254740992";
+  assert.equal(parseMcpStatus(`MCP ${unsafe}/${unsafe}`), undefined);
+});
+
 test("parses pi-lens LSP segments and hides inactive state", () => {
   assert.deepEqual(parseLspStatus("LSP Active: typescript, python"), [{ failed: false, names: "typescript, python" }]);
   assert.deepEqual(parseLspStatus("\u001B[32mLSP Active: typescript\u001B[0m"), [{ failed: false, names: "typescript" }]);
@@ -118,6 +155,7 @@ test("parses pi-lens LSP segments and hides inactive state", () => {
     { failed: true, names: "clangd" },
   ]);
   assert.deepEqual(parseLspStatus("LSP Inactive"), []);
+  assert.equal(parseLspStatus("LSP Active:    "), undefined);
   assert.equal(parseLspStatus("未知扩展文案"), undefined);
 });
 
@@ -136,6 +174,7 @@ test("automatically identifies model families by model ID", () => {
   assert.equal(getModelIcon("doubao-pro", "bytedance"), "𝐃");
   assert.equal(getModelIcon("mistral-large", "mistral"), "𝐌");
   assert.equal(getModelIcon("yi-large", "01-ai"), "①");
+  assert.equal(getModelIcon("unknown-model", "01-ai"), "①");
   assert.equal(getModelIcon("minimax-abab6.5", ""), "⬡");
   assert.equal(getModelIcon("abab6.5s-chat", "custom"), "⬡");
   assert.equal(getModelIcon("some-model", "local"), "⌂");
@@ -160,6 +199,31 @@ test("prefers named model families over OpenAI's loose -o1/-o3 suffixes", () => 
   assert.equal(getModelIcon("yi-o1", "test"), "①");
   assert.equal(getModelIcon("o1-pro", "openai"), "⬢");
   assert.equal(getModelIcon("chatgpt-4o", "openai"), "⬢");
+});
+
+test("treats an unrecognized Ollama model as local", () => {
+  assert.equal(getModelIcon("phi4", "ollama"), "⌂");
+});
+
+test("does not match Meta inside an unrelated provider name", () => {
+  assert.equal(getModelIcon("unknown-model", "metadata"), "◈");
+});
+
+test("does not treat an openai substring in a compound provider as OpenAI", () => {
+  assert.equal(getModelIcon("phi4", "openaiish"), "◈");
+});
+
+test("matches model families in hyphenated provider IDs without matching substrings", () => {
+  assert.equal(getModelIcon("unknown-model", "google-vertex"), "✧");
+  assert.equal(getModelIcon("unknown-model", "openai-responses"), "⬢");
+  assert.equal(getModelIcon("unknown-model", "moonshotai"), "𝐊");
+  assert.equal(getModelIcon("unknown-model", "openaiish"), "◈");
+});
+
+test("keeps named model families ahead of local hosts and OpenAI suffixes", () => {
+  assert.equal(getModelIcon("gemma-3", "ollama"), "✧");
+  assert.equal(getModelIcon("llama-3.3", "ollama"), "𝕃");
+  assert.equal(getModelIcon("qwen-o1", "aliyun"), "𝐐");
 });
 
 test("formats session duration in compact wall-clock units", () => {
@@ -190,6 +254,10 @@ test("formats streaming speed and stays silent without data", () => {
   assert.equal(formatSpeed(Number.NaN, Number.NaN), "");
 });
 
+test("does not expose an infinite streaming rate for finite inputs", () => {
+  assert.equal(formatSpeed(Number.MAX_VALUE, 1), "");
+});
+
 test("splits project path with home abbreviation for the identity slot", () => {
   assert.deepEqual(splitProjectPath("E:\\work\\demo", ""), { parent: "E:/work/", name: "demo" });
   assert.deepEqual(splitProjectPath("C:\\Users\\dev\\myapp", "C:\\Users\\dev"), { parent: "~/", name: "myapp" });
@@ -200,9 +268,11 @@ test("splits project path with home abbreviation for the identity slot", () => {
   assert.deepEqual(splitProjectPath("", ""), { parent: "", name: "" });
   assert.deepEqual(splitProjectPath("C:\\Users\\devx\\app", "C:\\Users\\dev"), { parent: "C:/Users/devx/", name: "app" });
   assert.deepEqual(splitProjectPath("c:\\users\\dev\\myapp", "C:\\Users\\Dev"), { parent: "~/", name: "myapp" });
+  assert.deepEqual(splitProjectPath("/", ""), { parent: "", name: "/" });
+  assert.deepEqual(splitProjectPath("C:\\", ""), { parent: "", name: "C:/" });
+  assert.deepEqual(splitProjectPath("C:/", ""), { parent: "", name: "C:/" });
 
-  // UNC: collapsing the leading "\\" to "/" turns \\srv\share\pkg into
-  // /srv/share/pkg, which is a different (and nonexistent) local path.
+  // UNC's leading double slash is part of the path, not a disposable separator.
   assert.deepEqual(splitProjectPath("\\\\srv\\share\\pkg", ""), { parent: "//srv/share/", name: "pkg" });
   assert.deepEqual(splitProjectPath("//srv/share/pkg", ""), { parent: "//srv/share/", name: "pkg" });
 });
@@ -215,16 +285,32 @@ test("legend explains every glyph the footer renders", () => {
   }
 });
 
-test("legend fits pi's widget line budget even after terminal wrapping", () => {
+test("legend fits pi's widget line budget in both locales", () => {
   // pi 的 InteractiveMode.MAX_WIDGET_LINES = 10：超出的行静默丢弃。图例每行由
   // Text(line, 1, 0) 渲染，左右各占 1 列 padding，所以 80 列终端只有 78 列可写。
-  // 必须按 visibleWidth 计宽——中文字符占 2 列，用 length 会低估近一半。
   const MAX_WIDGET_LINES = 10;
   const NARROWEST_TERMINAL = 80;
   const WIDGET_PADDING = 2;
   const content = NARROWEST_TERMINAL - WIDGET_PADDING;
 
-  assert.ok(LEGEND_LINES.length <= MAX_WIDGET_LINES, `legend has ${LEGEND_LINES.length} raw lines`);
-  const visualLines = LEGEND_LINES.reduce((sum, line) => sum + Math.ceil(visibleWidth(line) / content), 0);
-  assert.ok(visualLines <= MAX_WIDGET_LINES, `legend needs ${visualLines} visual lines at ${NARROWEST_TERMINAL} columns`);
+  for (const locale of ["zh", "en"] as const) {
+    const lines = legendLines(locale);
+    assert.ok(lines.length <= MAX_WIDGET_LINES, `${locale} legend has ${lines.length} raw lines`);
+    const visualLines = lines.reduce((sum, line) => sum + Math.ceil(visibleWidth(line) / content), 0);
+    assert.ok(visualLines <= MAX_WIDGET_LINES, `${locale} legend needs ${visualLines} visual lines at ${NARROWEST_TERMINAL} columns`);
+  }
+});
+
+test("resolveLocale honors an explicit locale over the detected one", () => {
+  assert.equal(resolveLocale("en", "zh-CN"), "en");
+  assert.equal(resolveLocale("zh", "en-US"), "zh");
+  assert.equal(resolveLocale("auto", "zh-CN"), "zh");
+  assert.equal(resolveLocale("auto", "en-US"), "en");
+});
+
+test("formatTurns uses a singular English form", () => {
+  assert.equal(formatTurns(1, "zh"), "1轮");
+  assert.equal(formatTurns(2, "zh"), "2轮");
+  assert.equal(formatTurns(1, "en"), "1 turn");
+  assert.equal(formatTurns(2, "en"), "2 turns");
 });

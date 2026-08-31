@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
 
-import install, { CONFIG } from "../index.ts";
+import {
+  createExtension,
+  handleStream,
+  hostVersionTooOld,
+  loadSettings,
+  resolveHome,
+  SETTINGS_FILE,
+} from "../index.ts";
 import { LEGEND_LINES } from "../format.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
@@ -106,15 +116,27 @@ function createContext(
   return { ctx, entries, footerFactoryState, footerData, extensionStatuses, branchListeners, footerCalls, widgetCalls, notifications };
 }
 
-function createApi() {
+const temporaryAgentDirs = new Set<string>();
+
+after(() => {
+  for (const dir of temporaryAgentDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+function tempAgentDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "pi-signal-footer-"));
+  temporaryAgentDirs.add(dir);
+  return dir;
+}
+
+function createApi(agentDir = tempAgentDir(), hostVersion?: string) {
   const handlers = new Map<string, Handler>();
   const commands = new Map<string, Handler>();
   const api = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
     registerCommand: (name: string, options: { handler: Handler }) => commands.set(name, options.handler),
-  } as unknown as Parameters<typeof install>[0];
-  install(api);
-  return { handlers, commands };
+  } as unknown as Parameters<ReturnType<typeof createExtension>>[0];
+  createExtension({ agentDir, hostVersion })(api);
+  return { handlers, commands, agentDir };
 }
 
 type Harness = ReturnType<typeof createContext>;
@@ -131,15 +153,8 @@ async function startSession(handlers: Map<string, Handler>, context: Harness) {
   await handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, context.ctx);
 }
 
-/** 每个用例结束后恢复全局 CONFIG，避免开关测试互相污染。 */
-async function withConfig(overrides: Partial<typeof CONFIG>, body: () => Promise<void> | void): Promise<void> {
-  const saved = { ...CONFIG };
-  Object.assign(CONFIG, overrides);
-  try {
-    await body();
-  } finally {
-    Object.assign(CONFIG, saved);
-  }
+async function setField(commands: Map<string, Handler>, ctx: TestContext, key: string, value: "on" | "off") {
+  await commands.get("signal-footer")!(`set ${key} ${value}`, ctx);
 }
 
 test("renders unknown context percentage without NaN", async () => {
@@ -185,44 +200,24 @@ test("counts turns as user messages, not assistant responses", async () => {
   assert.doesNotMatch(output, /3轮/);
 });
 
-test("refreshes usage totals when an existing entry is updated in place", async () => {
+test("refreshes usage totals when a non-final entry is updated in place", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-  context.entries.push({ type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "assistant", usage: { input: 1 } } });
+  context.entries.push(
+    { type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "assistant", usage: { input: 1 } } },
+    { type: "message", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "assistant", usage: { input: 3 } } },
+  );
   await startSession(handlers, context);
 
   const footer = openFooter(context);
   const before = footer.render(120).join("\n");
-  context.entries[0].message!.usage!.input = 2_000;
+  const firstEntry = context.entries[0];
+  assert.ok(firstEntry?.message?.usage);
+  firstEntry.message.usage.input = 2_000;
   const after = footer.render(120).join("\n");
 
-  assert.match(before, /↓ 1/);
+  assert.match(before, /↓ 4/);
   assert.match(after, /↓ 2\.0k/);
-});
-
-test("does not rescan every entry on every footer render", async () => {
-  // 2 = 首次渲染派生 totals 与 stats 各遍历一次；之后应命中缓存，两次渲染遍历数不再增长。
-  class Entries extends Array<TestEntry> {
-    iterations = 0;
-    override [Symbol.iterator](): ArrayIterator<TestEntry> {
-      this.iterations++;
-      return super[Symbol.iterator]();
-    }
-  }
-
-  const { handlers } = createApi();
-  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-  const entries = new Entries(
-    { type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "assistant", usage: { input: 1 } } },
-  );
-  context.ctx.sessionManager.getEntries = () => entries;
-  await startSession(handlers, context);
-  const footer = openFooter(context);
-
-  footer.render(120);
-  footer.render(120);
-
-  assert.ok(entries.iterations <= 2, `two renders iterated entries ${entries.iterations} times (expected <= 2)`);
 });
 
 test("ignores malformed usage without poisoning later valid totals", async () => {
@@ -391,8 +386,44 @@ test("keeps every footer line within width when the theme emits ANSI codes", asy
   }
 });
 
-test("keeps the model identity visible at every width that can show anything", async () => {
-  // 核心回归：旧实现在 76–112 列把整块身份截掉，只留上下文读数。
+test("colors context numbers with the same threshold as the percentage", async () => {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 125, contextWindow: 1000, percent: 75 });
+  await startSession(handlers, context);
+
+  const colors: Record<string, string> = {
+    accent: "\u001B[36m",
+    dim: "\u001B[2m",
+    error: "\u001B[31m",
+    muted: "\u001B[90m",
+    text: "\u001B[37m",
+    warning: "\u001B[33m",
+  };
+  const colorTheme = {
+    fg: (color: string, text: string) => `${colors[color] ?? ""}${text}\u001B[39m`,
+    bold: (text: string) => `\u001B[1m${text}\u001B[22m`,
+    getThinkingBorderColor: () => (text: string) => text,
+  } as unknown as ThemeStub;
+  const output = renderLines(context, 160, colorTheme).join("\n");
+
+  assert.ok(output.includes(`${colors.error}125/1.0k`));
+  assert.ok(!output.includes(`${colors.error}${colors.text}125/1.0k`));
+});
+
+test("degrades safely when the host supplies a zero or non-finite render width", async () => {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
+  await startSession(handlers, context);
+  const footer = openFooter(context);
+
+  for (const width of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.doesNotThrow(() => footer.render(width));
+    for (const line of footer.render(width)) assert.equal(visibleWidth(line), 0);
+  }
+});
+
+test("keeps the model identity visible at medium and wide layout widths", async () => {
+  // 76–130 是身份曾经整块消失的区间；更窄的宽度由「模型名最后被截」的降级测试覆盖。
   const { handlers } = createApi();
   const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
   context.ctx.model = { provider: "opencode-go", id: "deepseek-v4-flash-0731", contextWindow: 200_000 };
@@ -403,7 +434,7 @@ test("keeps the model identity visible at every width that can show anything", a
 
   // 模型名必须出现在首行，直到宽度连模型名本身都放不下
   for (const width of [76, 80, 88, 100, 112, 130]) {
-    const line1 = footer.render(width)[0];
+    const line1 = footer.render(width)[0] ?? "";
     assert.ok(line1.includes("deepseek-v4-flash-0731"), `model lost at width ${width}: ${line1}`);
   }
 });
@@ -422,7 +453,7 @@ test("degrades the identity block instead of truncating it when the branch is lo
   const footer = openFooter(context);
 
   for (const width of [76, 80, 88, 96, 104]) {
-    const line1 = footer.render(width)[0];
+    const line1 = footer.render(width)[0] ?? "";
     assert.ok(line1.includes("deepseek-v4-flash-0731"), `model lost at width ${width}: ${line1}`);
     // 降级而非截断：首行不应出现省略号，腾出的空间应让上下文保住数值。
     assert.ok(!line1.includes("..."), `identity chopped instead of degraded at width ${width}: ${line1}`);
@@ -441,7 +472,7 @@ test("never renders a richer context part without the parts that outrank it", as
   const footer = openFooter(context);
 
   for (let width = 1; width <= 160; width++) {
-    const line = footer.render(width)[0];
+    const line = footer.render(width)[0] ?? "";
     const hasBar = /\[[━─]+\]/.test(line);
     const hasNumbers = line.includes("125k/200k");
     const hasPercent = line.includes("63%");
@@ -451,8 +482,8 @@ test("never renders a richer context part without the parts that outrank it", as
   }
 
   // 端点：足够宽时画条，足够窄时整个上下文让位给身份
-  assert.match(footer.render(160)[0], /\[[━─]+\]/);
-  assert.doesNotMatch(footer.render(40)[0], /63%/);
+  assert.match(footer.render(160)[0] ?? "", /\[[━─]+\]/);
+  assert.doesNotMatch(footer.render(40)[0] ?? "", /63%/);
 });
 
 test("renders MCP and LSP extension statuses as normalized chips", async () => {
@@ -469,9 +500,18 @@ test("renders MCP and LSP extension statuses as normalized chips", async () => {
   assert.match(output, /LSP ✗ clangd/);
 });
 
+test("leaves invalid MCP text visible instead of rendering a chip", async () => {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: "MCP 3/2" });
+  await startSession(handlers, context);
+  const output = renderLines(context, 160).join("\n");
+
+  assert.match(output, /MCP 3\/2/);
+  assert.doesNotMatch(output, /⇄ MCP 3\/2/);
+});
+
 test("keeps our own stats intact and truncates third-party statuses when line 2 is tight", async () => {
-  // 宽布局第二行 = 统计块 + 其他扩展的状态块。二者争宽度时保留统计（本插件的核心
-  // 数据），截断状态（第三方插件写入的文案）。这是对旧实现方向的有意反转。
+  // 宽布局拥挤时，本插件统计优先于第三方状态文案。
   const { handlers } = createApi();
   const context = createContext(
     { tokens: 0, contextWindow: 1000, percent: 0 },
@@ -485,7 +525,7 @@ test("keeps our own stats intact and truncates third-party statuses when line 2 
   await startSession(handlers, context);
 
   // 112 是宽布局下界，此处统计块 + 状态块已超出可用宽度，必须有一侧让位
-  const line2 = openFooter(context).render(112)[1];
+  const line2 = openFooter(context).render(112)[1] ?? "";
   assert.ok(visibleWidth(line2) <= 112);
   assert.match(line2, /↓ 100/);
   assert.match(line2, /\$0\.500/);
@@ -502,13 +542,12 @@ test("installs the footer exactly once per session start", async () => {
   openFooter(context);
   assert.equal(context.branchListeners.size, 1);
 
-  // resources_discover 在 SDK 里总紧随 session_start，插件不再挂该事件，
-  // 因此它不应触发第二次安装（旧实现会让 footer 白装两遍）。
+  // resources_discover 紧随 session_start，不能触发第二次安装。
   await handlers.get("resources_discover")?.({ type: "resources_discover", cwd: "C:\\work", reason: "startup" }, context.ctx);
   assert.equal(context.footerCalls.length, 1);
 });
 
-test("off stays off until the next session start", async () => {
+test("off stays off across session start in the same process", async () => {
   const { handlers, commands } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   await startSession(handlers, context);
@@ -519,9 +558,8 @@ test("off stays off until the next session start", async () => {
   await handlers.get("resources_discover")?.({ type: "resources_discover", cwd: "C:\\work", reason: "reload" }, context.ctx);
   assert.equal(context.footerCalls.at(-1), undefined, "resources_discover must not resurrect a footer the user turned off");
 
-  // 新会话开始时 pi 会先 resetExtensionUI 再发 session_start，此处重新安装属预期
   await handlers.get("session_start")?.({ type: "session_start", reason: "new" }, context.ctx);
-  assert.equal(typeof context.footerCalls.at(-1), "function");
+  assert.equal(context.footerCalls.at(-1), undefined, "persisted off must survive session_start");
 });
 
 test("unsubscribes the branch listener when the footer is disposed", async () => {
@@ -550,28 +588,104 @@ test("reinstalls the footer when a replacement session starts", async () => {
   assert.match(renderLines(second).join("\n"), /gpt-test/);
 });
 
-test("keeps rendering when the home directory cannot be resolved", async () => {
-  // os.homedir() 在完全解析不出主目录时抛 ERR_SYSTEM_ERROR，而 render() 抛错会击穿
-  // pi 的渲染循环：doRender 没有 try/catch，宿主对 uncaughtException 的处理是退出进程。
-  // 触发条件为 Windows 特有（POSIX 会回落到 passwd），其他平台上此测试只验证不抛错。
+test("hostVersionTooOld compares major.minor.patch without a semver library", () => {
+  assert.equal(hostVersionTooOld("0.84.3"), true);
+  assert.equal(hostVersionTooOld("0.84.4"), false);
+  assert.equal(hostVersionTooOld("0.85.0"), false);
+  assert.equal(hostVersionTooOld("1.0.0"), false);
+  assert.equal(hostVersionTooOld("0.84.4-beta.1"), true);
+  assert.equal(hostVersionTooOld("0.84.4+build.1"), false);
+  assert.equal(hostVersionTooOld("0.84"), true);
+  assert.equal(hostVersionTooOld("not-a-version"), true);
+});
+
+test("unsupported hosts keep the native footer and avoid custom footer APIs", async () => {
+  const { handlers, commands } = createApi(tempAgentDir(), "0.84.3");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  await startSession(handlers, context);
+  assert.equal(context.footerCalls.length, 0);
+  assert.equal(context.notifications.filter((item) => item.level === "warning").length, 1);
+
+  await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, context.ctx);
+  await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, context.ctx);
+  await commands.get("signal-footer")?.("legend", context.ctx);
+  assert.equal(context.notifications.filter((item) => item.level === "warning").length, 1);
+  await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, context.ctx);
+  assert.equal(context.footerCalls.length, 0);
+  assert.equal(context.widgetCalls.length, 0);
+});
+
+test("unsupported hosts do not require notify to remain safe", async () => {
+  const { handlers, commands } = createApi(tempAgentDir(), "0.84.3");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  (context.ctx.ui as unknown as { notify?: unknown }).notify = undefined;
+
+  await assert.doesNotReject(() => startSession(handlers, context));
+  await assert.doesNotReject(async () => {
+    await commands.get("signal-footer")!("legend", context.ctx);
+  });
+  assert.equal(context.footerCalls.length, 0);
+  assert.equal(context.widgetCalls.length, 0);
+});
+
+test("minimum supported host installs and removes the custom footer", async () => {
+  const { handlers } = createApi(tempAgentDir(), "0.84.4");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  assert.equal(context.footerCalls.length, 1);
+  assert.equal(context.notifications.filter((item) => item.level === "warning").length, 0);
+
+  await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, context.ctx);
+  assert.equal(context.footerCalls.at(-1), undefined);
+});
+
+test("unsupported hosts do not install a footer from control commands", async () => {
+  const { handlers, commands } = createApi(tempAgentDir(), "0.84.3");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  await commands.get("signal-footer")!("on", context.ctx);
+  await commands.get("signal-footer")!("locale en", context.ctx);
+  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+
+  assert.equal(context.footerCalls.length, 0);
+});
+
+test("resolveHome survives homedir throwing without abbreviating to ~", () => {
   const savedHome = process.env.HOME;
   const savedProfile = process.env.USERPROFILE;
   process.env.USERPROFILE = "";
   delete process.env.HOME;
   try {
-    const { handlers } = createApi();
-    const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-    context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\agent-demo";
-    await startSession(handlers, context);
-
-    const output = renderLines(context, 140).join("\n");
-    assert.match(output, /agent-demo/, "the project path must still render");
-    assert.doesNotMatch(output, /~/, "with no home directory nothing may be abbreviated");
+    const boom = () => {
+      throw Object.assign(new Error("x"), { code: "ERR_SYSTEM_ERROR" });
+    };
+    assert.equal(resolveHome(boom), "");
   } finally {
     if (savedProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = savedProfile;
     if (savedHome === undefined) delete process.env.HOME;
     else process.env.HOME = savedHome;
+  }
+});
+
+test("resolveHome falls back to USERPROFILE when HOME is empty", () => {
+  const savedHome = process.env.HOME;
+  const savedProfile = process.env.USERPROFILE;
+  process.env.HOME = "";
+  process.env.USERPROFILE = "C:\\Users\\dev";
+  try {
+    assert.equal(resolveHome(() => {
+      throw new Error("home lookup failed");
+    }), "C:\\Users\\dev");
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedProfile;
   }
 });
 
@@ -610,50 +724,53 @@ test("off clears the legend and shutdown clears both", async () => {
 });
 
 test("showSessionName works independently of showProject", async () => {
-  const { handlers } = createApi();
+  const { handlers, commands } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.ctx.sessionManager.getSessionName = () => "fix-context-bar";
   await startSession(handlers, context);
 
-  await withConfig({ showProject: false, showSessionName: true }, () => {
+  await setField(commands, context.ctx, "showProject", "off");
+  await setField(commands, context.ctx, "showSessionName", "on");
+  {
     const output = renderLines(context, 160).join("\n");
     assert.ok(output.includes("fix-context-bar"), "session name must survive with the project path disabled");
     assert.ok(!output.includes("C:/work/demo"), "project path itself stays hidden");
-  });
+  }
 
-  await withConfig({ showProject: true, showSessionName: false }, () => {
+  await setField(commands, context.ctx, "showProject", "on");
+  await setField(commands, context.ctx, "showSessionName", "off");
+  {
     const output = renderLines(context, 160).join("\n");
     assert.ok(output.includes("demo"));
     assert.ok(!output.includes("fix-context-bar"));
-  });
+  }
 
-  await withConfig({ showProject: false, showSessionName: false }, () => {
+  await setField(commands, context.ctx, "showProject", "off");
+  await setField(commands, context.ctx, "showSessionName", "off");
+  {
     const output = renderLines(context, 160).join("\n");
     assert.ok(!output.includes("fix-context-bar"));
     assert.ok(!output.includes("demo"));
-  });
+  }
 });
 
 test("showBranch and showTurns toggles take effect", async () => {
-  const { handlers } = createApi();
+  const { handlers, commands } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.footerData.getGitBranch = () => "main";
   context.entries.push({ type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user" } });
   await startSession(handlers, context);
 
-  await withConfig({ showBranch: true }, () => {
-    assert.match(renderLines(context, 160).join("\n"), /⎇ main/);
-  });
-  await withConfig({ showBranch: false }, () => {
-    assert.doesNotMatch(renderLines(context, 160).join("\n"), /⎇ main/);
-  });
-  await withConfig({ showTurns: false }, () => {
-    assert.doesNotMatch(renderLines(context, 160).join("\n"), /1轮/);
-  });
+  await setField(commands, context.ctx, "showBranch", "on");
+  assert.match(renderLines(context, 160).join("\n"), /⎇ main/);
+  await setField(commands, context.ctx, "showBranch", "off");
+  assert.doesNotMatch(renderLines(context, 160).join("\n"), /⎇ main/);
+  await setField(commands, context.ctx, "showTurns", "off");
+  assert.doesNotMatch(renderLines(context, 160).join("\n"), /1轮/);
 });
 
 test("showDuration, showSpeed and showCacheRatio toggles take effect", async () => {
-  const { handlers } = createApi();
+  const { handlers, commands } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
     { type: "message", timestamp: "2026-01-01T00:01:00.000Z", message: { role: "user" } },
@@ -663,62 +780,295 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
       message: { role: "assistant", usage: { input: 10, output: 50, cacheRead: 900, cacheWrite: 100, cost: { total: 0.01 } } },
     },
   );
-  const times = [0, 1000, 3000];
   const originalNow = Date.now;
-  Date.now = () => times.shift() ?? 3000;
+  await startSession(handlers, context);
+  handleStream("start", { role: "assistant" }, 0, context.ctx.sessionManager);
+  handleStream("update", { role: "assistant" }, 1000, context.ctx.sessionManager);
+  handleStream("end", { role: "assistant", usage: { output: 100 } }, 3000, context.ctx.sessionManager);
+  assert.equal(Date.now, originalNow);
 
+  const all = renderLines(context, 160).join("\n");
+  assert.match(all, /◷ 1m/);
+  assert.match(all, /↻ 900 \(90%\)/);
+  assert.match(all, /50 tok\/s/);
+
+  await setField(commands, context.ctx, "showDuration", "off");
+  {
+    const out = renderLines(context, 160).join("\n");
+    assert.doesNotMatch(out, /◷ 1m/);
+    assert.match(out, /50 tok\/s/, "turning off the span must not drop the rate");
+  }
+  await setField(commands, context.ctx, "showDuration", "on");
+  await setField(commands, context.ctx, "showSpeed", "off");
+  {
+    const out = renderLines(context, 160).join("\n");
+    assert.doesNotMatch(out, /tok\/s/);
+    assert.match(out, /◷ 1m/, "turning off the rate must not drop the span");
+  }
+  await setField(commands, context.ctx, "showSpeed", "on");
+  await setField(commands, context.ctx, "showCacheRatio", "off");
+  {
+    const out = renderLines(context, 160).join("\n");
+    assert.doesNotMatch(out, /\(90%\)/);
+    assert.match(out, /↻ 900/, "the read count itself must stay visible");
+  }
+});
+
+test("keeps streaming rates isolated by session context", async () => {
+  const { handlers } = createApi();
+  const first = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const second = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, first);
+  await startSession(handlers, second);
+
+  const originalNow = Date.now;
+  let now = 0;
+  Date.now = () => now;
   try {
-    await startSession(handlers, context);
-    handlers.get("message_start")?.({ message: { role: "assistant" } }, context.ctx);
-    handlers.get("message_update")?.({ message: { role: "assistant" } }, context.ctx);
-    handlers.get("message_end")?.({ message: { role: "assistant", usage: { output: 100 } } }, context.ctx);
-
-    const all = renderLines(context, 160).join("\n");
-    assert.match(all, /◷ 1m/);
-    assert.match(all, /↻ 900 \(90%\)/);
-    assert.match(all, /50 tok\/s/);
-
-    await withConfig({ showDuration: false }, () => {
-      const out = renderLines(context, 160).join("\n");
-      assert.doesNotMatch(out, /◷ 1m/);
-      assert.match(out, /50 tok\/s/, "turning off the span must not drop the rate");
-    });
-    await withConfig({ showSpeed: false }, () => {
-      const out = renderLines(context, 160).join("\n");
-      assert.doesNotMatch(out, /tok\/s/);
-      assert.match(out, /◷ 1m/, "turning off the rate must not drop the span");
-    });
-    await withConfig({ showCacheRatio: false }, () => {
-      const out = renderLines(context, 160).join("\n");
-      assert.doesNotMatch(out, /\(90%\)/);
-      assert.match(out, /↻ 900/, "the read count itself must stay visible");
-    });
+    await handlers.get("message_start")?.({ type: "message_start", message: { role: "assistant" } }, first.ctx);
+    now = 100;
+    await handlers.get("message_start")?.({ type: "message_start", message: { role: "assistant" } }, second.ctx);
+    now = 1000;
+    await handlers.get("message_update")?.({ type: "message_update", message: { role: "assistant" } }, first.ctx);
+    now = 500;
+    await handlers.get("message_update")?.({ type: "message_update", message: { role: "assistant" } }, second.ctx);
+    now = 3000;
+    await handlers.get("message_end")?.(
+      { type: "message_end", message: { role: "assistant", usage: { output: 100 } } },
+      first.ctx,
+    );
+    now = 2500;
+    await handlers.get("message_end")?.(
+      { type: "message_end", message: { role: "assistant", usage: { output: 200 } } },
+      second.ctx,
+    );
   } finally {
     Date.now = originalNow;
   }
+
+  assert.match(renderLines(first, 160).join("\n"), /50 tok\/s/);
+  assert.match(renderLines(second, 160).join("\n"), /100 tok\/s/);
+
+  await handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "new" }, first.ctx);
+  assert.match(renderLines(second, 160).join("\n"), /100 tok\/s/);
 });
 
 test("clears the previous response speed when a session shuts down", async () => {
   const { handlers } = createApi();
   const first = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-  const times = [0, 1000, 3000];
   const originalNow = Date.now;
-  Date.now = () => times.shift() ?? 3000;
+  await startSession(handlers, first);
+  handleStream("start", { role: "assistant" }, 0, first.ctx.sessionManager);
+  handleStream("update", { role: "assistant" }, 1000, first.ctx.sessionManager);
+  handleStream("end", { role: "assistant", usage: { output: 100 } }, 3000, first.ctx.sessionManager);
+  assert.equal(Date.now, originalNow);
 
-  try {
-    await startSession(handlers, first);
-    handlers.get("message_start")?.({ message: { role: "assistant" } }, first.ctx);
-    handlers.get("message_update")?.({ message: { role: "assistant" } }, first.ctx);
-    handlers.get("message_end")?.({ message: { role: "assistant", usage: { output: 100 } } }, first.ctx);
+  assert.match(renderLines(first).join("\n"), /50 tok\/s/);
 
-    assert.match(renderLines(first).join("\n"), /50 tok\/s/);
+  await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, first.ctx);
 
-    await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, first.ctx);
+  const second = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, second);
+  assert.doesNotMatch(renderLines(second).join("\n"), /tok\/s/);
+});
 
-    const second = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-    await startSession(handlers, second);
-    assert.doesNotMatch(renderLines(second).join("\n"), /tok\/s/);
-  } finally {
-    Date.now = originalNow;
-  }
+test("locale en uses English turn labels", async () => {
+  const { handlers, commands } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.entries.push({ type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user" } });
+  await startSession(handlers, context);
+  await commands.get("signal-footer")!("locale en", context.ctx);
+  const output = renderLines(context, 160).join("\n");
+  assert.match(output, /1 turn/);
+  assert.doesNotMatch(output, /轮/);
+});
+
+test("refreshes a visible legend immediately when locale changes", async () => {
+  const { handlers, commands } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  const command = commands.get("signal-footer")!;
+
+  await command("legend", context.ctx);
+  const before = context.widgetCalls.at(-1);
+  assert.ok(before?.content?.some((line) => line.includes("输入")));
+
+  await command("locale en", context.ctx);
+  const after = context.widgetCalls.at(-1);
+  assert.equal(after?.key, before?.key);
+  assert.ok(after?.content?.some((line) => line.includes("in") && line.includes("out")));
+  assert.ok(!after?.content?.some((line) => line.includes("输入")));
+});
+
+test("refreshes an explicitly opened legend when the footer is disabled", async () => {
+  const { handlers, commands } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  const command = commands.get("signal-footer")!;
+
+  await command("off", context.ctx);
+  await command("legend", context.ctx);
+  await command("locale en", context.ctx);
+
+  const after = context.widgetCalls.at(-1);
+  assert.ok(after?.content?.some((line) => line.includes("in") && line.includes("out")));
+  assert.ok(!after?.content?.some((line) => line.includes("输入")));
+  assert.equal(context.footerCalls.at(-1), undefined);
+});
+
+test("off persists across a fresh extension load", async () => {
+  const agentDir = tempAgentDir();
+  const first = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(first.handlers, context);
+  await first.commands.get("signal-footer")!("off", context.ctx);
+  assert.equal(context.footerCalls.at(-1), undefined);
+  assert.equal(JSON.parse(readFileSync(join(agentDir, SETTINGS_FILE), "utf8")).enabled, false);
+
+  const reloaded = createApi(agentDir);
+  const next = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(reloaded.handlers, next);
+  assert.equal(next.footerCalls.at(-1), undefined, "a new module load must honor enabled:false");
+});
+
+test("session_start removes an installed footer when reloaded settings disable it", async () => {
+  const agentDir = tempAgentDir();
+  const { handlers } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  assert.equal(typeof context.footerCalls.at(-1), "function");
+
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: false }), "utf8");
+  await startSession(handlers, context);
+
+  assert.equal(context.footerCalls.at(-1), undefined, "reloading disabled settings must restore the native footer");
+});
+
+test("does not clear an existing footer when starting disabled", async () => {
+  const agentDir = tempAgentDir();
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: false }), "utf8");
+  const { handlers } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const otherFooter = (() => {}) as unknown as FooterFactory;
+  context.ctx.ui.setFooter(otherFooter);
+
+  await startSession(handlers, context);
+
+  assert.equal(context.footerCalls.at(-1), otherFooter, "disabled startup must not clear another footer");
+});
+
+test("set showBranch false writes the settings file and hides the branch", async () => {
+  const { handlers, commands, agentDir } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.footerData.getGitBranch = () => "main";
+  await startSession(handlers, context);
+  await setField(commands, context.ctx, "showBranch", "off");
+  assert.equal(loadSettings(agentDir).settings.showBranch, false);
+  assert.doesNotMatch(renderLines(context, 160).join("\n"), /⎇ main/);
+});
+
+test("configuration changes clear an active footer when the loaded settings disable it", async () => {
+  const agentDir = tempAgentDir();
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  assert.equal(typeof context.footerCalls.at(-1), "function");
+
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: false }), "utf8");
+  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+
+  assert.equal(context.footerCalls.at(-1), undefined);
+});
+
+test("disabling loaded settings also clears a visible legend", async () => {
+  const agentDir = tempAgentDir();
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  await commands.get("signal-footer")!("legend", context.ctx);
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: false }), "utf8");
+  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+
+  assert.equal(context.footerCalls.at(-1), undefined);
+  assert.equal(context.widgetCalls.at(-1)?.content, undefined);
+});
+
+test("invalid settings JSON falls back to defaults and notifies once", async () => {
+  const agentDir = tempAgentDir();
+  writeFileSync(join(agentDir, SETTINGS_FILE), "{not json", "utf8");
+  const { handlers } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  assert.match(renderLines(context, 160).join("\n"), /gpt-test/);
+  assert.equal(context.notifications.filter((item) => item.level === "warning").length, 1);
+  renderLines(context, 160);
+  assert.equal(context.notifications.filter((item) => item.level === "warning").length, 1);
+});
+
+test("status reports file-level settings load errors separately from invalid fields", async () => {
+  const agentDir = tempAgentDir();
+  writeFileSync(join(agentDir, SETTINGS_FILE), "{not json", "utf8");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  await commands.get("signal-footer")!("status", context.ctx);
+  const status = context.notifications.at(-1)?.message ?? "";
+  assert.match(status, /error: invalid-json/);
+  assert.match(status, /invalid: none/);
+});
+
+test("reports invalid setting fields and exposes diagnostics in status", async () => {
+  const agentDir = tempAgentDir();
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: "false", locale: "en" }), "utf8");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  const warning = context.notifications.find((item) => item.level === "warning");
+  assert.ok(warning);
+  assert.match(warning.message, /enabled/);
+  assert.doesNotMatch(warning.message, /无法解析|Could not parse/);
+
+  await commands.get("signal-footer")!("status", context.ctx);
+  const status = context.notifications.at(-1)?.message ?? "";
+  assert.match(status, /pi-signal-footer\.json/);
+  assert.match(status, /enabled: on/);
+  assert.match(status, /locale: en/);
+  assert.match(status, /invalid: enabled/);
+});
+
+test("a successful settings write clears the prior diagnostic warning state", async () => {
+  const agentDir = tempAgentDir();
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: "false" }), "utf8");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  assert.equal(context.notifications.filter((item) => item.level === "warning").length, 1);
+
+  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: "false" }), "utf8");
+  await commands.get("signal-footer")!("status", context.ctx);
+  assert.equal(context.notifications.filter((item) => item.level === "warning").length, 2);
+});
+
+test("does not claim success or change the footer when settings cannot be written", async () => {
+  const parent = tempAgentDir();
+  const agentDir = join(parent, "agent-file");
+  writeFileSync(agentDir, "original", "utf8");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  const installed = context.footerCalls.at(-1);
+  await commands.get("signal-footer")!("off", context.ctx);
+
+  assert.equal(context.footerCalls.at(-1), installed);
+  assert.equal(readFileSync(agentDir, "utf8"), "original");
+  assert.equal(context.notifications.at(-1)?.level, "error");
+  assert.doesNotMatch(context.notifications.map((item) => item.message).join("\n"), /已关闭|disabled/);
 });

@@ -18,8 +18,11 @@
   "files": [
     "LICENSE",
     "README.md",
+    "README.zh-CN.md",
     "format.ts",
-    "index.ts"
+    "index.ts",
+    "settings.ts",
+    "footer.ts"
   ],
   "keywords": [
     "pi-package",
@@ -29,15 +32,20 @@
     "tui"
   ],
   "scripts": {
-    "test": "tsx --test test/format.test.ts test/index.test.ts",
+    "test": "tsx --test test/format.test.ts test/index.test.ts test/settings.test.ts test/package.test.ts test/load.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run test && npm run typecheck",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "bench:footer": "tsx bench/footer.bench.ts"
   },
   "pi": {
     "extensions": [
       "./index.ts"
     ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.4",
+    "@earendil-works/pi-tui": ">=0.84.4"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.4",

@@ -9,7 +9,7 @@ C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4
 ↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                             ⇄ MCP 1/1 · LSP typescript
 ```
 
-Captured from a 140-column terminal; both lines are padded to the full width, which is why the status chips sit flush right.
+Captured from a 140-column terminal with extension statuses present; the status-bearing line is padded to the full width, which is why the chips sit flush right.
 
 The first line shows the project path, session name, provider and model, thinking level, and git branch. Model icons are matched by model family, and paths under the home directory are abbreviated to `~`. The context bar takes up to 20 columns of whatever width is left and shows the percentage plus used and window tokens: warning color at 50%, error color at 75%, `?` while usage is unknown.
 
@@ -43,23 +43,27 @@ pi install ./pi-signal-footer
 
 Loads a directory from disk, for development and testing.
 
-Built and tested against Pi Coding Agent 0.84.4 and Node.js 22.19.0 (the minimum `engines` entry). The Pi requirement is not machine-enforced: this extension is loaded as TypeScript source, so an older Pi that lacks an API it calls throws when the footer installs or first renders, rather than being rejected at install time.
+Built and tested against Pi Coding Agent 0.84.4 and Node.js 22.19.0 (the minimum `engines` entry). The package declares Pi's bundled modules as peer dependencies (`>=0.84.4`). `pi install` does not enforce npm peers, so an older host still loads the TypeScript source; this extension warns once on `session_start` and leaves Pi's native footer in place without calling the custom-footer API.
 
 ## Configure
 
-Field visibility is a single `CONFIG` object at the top of `index.ts`:
+Settings live in `pi-signal-footer.json` under Pi's agent directory (`getAgentDir()`, usually `~/.pi/agent/`). A missing file uses these defaults. Invalid JSON or an unreadable file also uses defaults and emits one warning. A valid partial object is accepted, unknown keys are ignored, and a known key with the wrong type is replaced by its default while the warning names the invalid field (the allowed locales are `auto`, `zh`, and `en`).
 
-```ts
-export const CONFIG = {
-  showProject: true,      // full project path (parent dirs dimmed, home abbreviated to ~)
-  showSessionName: true,  // session name, when set
-  showDuration: true,     // span from the first to the last session entry
-  showTurns: true,        // turns (user messages)
-  showSpeed: true,        // streaming tok/s of the last response
-  showBranch: true,       // git branch
-  showCacheRatio: true,   // cache hit ratio
-};
+```json
+{
+  "enabled": true,
+  "locale": "auto",
+  "showProject": true,
+  "showSessionName": true,
+  "showDuration": true,
+  "showTurns": true,
+  "showSpeed": true,
+  "showBranch": true,
+  "showCacheRatio": true
+}
 ```
+
+`/signal-footer set`, `/signal-footer locale`, and `/signal-footer off|on` write this file. Editing the package source is no longer the configuration path; if you previously changed `CONFIG` in `index.ts`, copy those flags here.
 
 ## Recognized upstream status text
 
@@ -89,11 +93,17 @@ added. New LSP states are parsed on demand rather than pre-declared.
 ## Commands
 
 ```text
-/signal-footer legend   show the metric legend above the editor
-/signal-footer hide     hide the legend
-/signal-footer off      switch back to the native footer (this session)
-/signal-footer on       re-enable this footer (this session)
+/signal-footer legend              show the metric legend above the editor
+/signal-footer hide                hide the legend (this session)
+/signal-footer off                 restore the native footer and persist that choice
+/signal-footer on                  enable this footer and persist that choice
+/signal-footer status              show path, enabled state, locale, load error, and invalid fields from the last load
+/signal-footer locale auto|zh|en   persist UI language (auto follows the host locale)
+/signal-footer set <show*> <on|off>
 ```
+
+The `show*` keys are `showProject`, `showSessionName`, `showDuration`,
+`showTurns`, `showSpeed`, `showBranch`, and `showCacheRatio`.
 
 ## Development
 
@@ -102,9 +112,11 @@ npm test
 npm run typecheck
 npm run check
 npm run pack:check
+npm run bench:footer
 ```
 
 `npm run check` runs the tests and the TypeScript check; `npm run pack:check` previews the files that ship in the package. The TypeScript check skips declarations inside the Pi SDK dependency tree and checks the extension source itself strictly.
+`npm run bench:footer` is an opt-in local benchmark for render cost and output width; it is not a CI gate.
 
 ## License
 
