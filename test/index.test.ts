@@ -157,6 +157,14 @@ async function setField(commands: Map<string, Handler>, ctx: TestContext, key: s
   await commands.get("signal-footer")!(`set ${key} ${value}`, ctx);
 }
 
+/** 测试需要确定性的 UI 文案时固定 locale；默认 auto 会跟随运行机器的语言环境。 */
+async function commandsWriteLocale(handlers: Map<string, Handler>, locale: "zh" | "en") {
+  const { commands } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  await commands.get("signal-footer")!(`locale ${locale}`, context.ctx);
+}
+
 test("renders unknown context percentage without NaN", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 100, contextWindow: 1000, percent: Number.NaN });
@@ -184,6 +192,8 @@ test("computes session duration from the earliest and latest entry timestamps", 
 
 test("counts turns as user messages, not assistant responses", async () => {
   const { handlers } = createApi();
+  // 断言的是中文「轮」标签；默认 locale 跟随宿主环境，CI 的 en-US 机器会渲染英文。
+  await commandsWriteLocale(handlers, "zh");
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   // 一次提问触发 3 次 LLM 请求（工具循环）：轮次应为 1，而不是 3
   context.entries.push(
@@ -885,6 +895,8 @@ test("locale en uses English turn labels", async () => {
 
 test("refreshes a visible legend immediately when locale changes", async () => {
   const { handlers, commands } = createApi();
+  // 先固定 zh：默认 locale 跟随宿主环境，en-US 机器上「输入」断言会落空。
+  await commandsWriteLocale(handlers, "zh");
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   await startSession(handlers, context);
   const command = commands.get("signal-footer")!;
@@ -902,6 +914,7 @@ test("refreshes a visible legend immediately when locale changes", async () => {
 
 test("refreshes an explicitly opened legend when the footer is disabled", async () => {
   const { handlers, commands } = createApi();
+  await commandsWriteLocale(handlers, "zh");
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   await startSession(handlers, context);
   const command = commands.get("signal-footer")!;
