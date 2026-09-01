@@ -86,12 +86,14 @@ MCP 与 LSP 徽标解析自其他扩展写入的状态字符串，本质是一�
 ```text
 /signal-footer legend              在编辑器上方显示指标图例
 /signal-footer hide                隐藏图例（本会话）
-/signal-footer off                 切回原生状态栏并记住该选择
+/signal-footer off                 切回原生状态栏并记住该选择；重复执行无变化
 /signal-footer on                  启用本状态栏并记住该选择
 /signal-footer status              显示路径、启用状态、有效语言、加载错误和上次加载的无效字段
 /signal-footer locale auto|zh|en   持久化界面语言（auto 跟随宿主 locale）
 /signal-footer set <show*> <on|off>
 ```
+
+`off` 与 `on` 跨会话持久且幂等：`off` 之后由 Pi 原生状态栏接管，`/signal-footer on` 可切回。
 
 `show*` 可用键为：`showProject`、`showSessionName`、`showDuration`、
 `showTurns`、`showSpeed`、`showBranch`、`showCacheRatio`。

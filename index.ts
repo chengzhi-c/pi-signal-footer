@@ -216,7 +216,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     });
 
     pi.registerCommand("signal-footer", {
-      description: "Show the status legend or control the readable footer",
+      description: "Show the status legend or toggle the readable footer (off/on persist)",
       handler: async (args, ctx) => {
         if (!footerSupported) {
           warnUnsupportedHost(ctx);

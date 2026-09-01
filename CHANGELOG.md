@@ -5,6 +5,7 @@
 ## 0.3.2
 
 - **路径 / Paths**：修复家目录缩写在大小写折叠改变前缀长度时（如 İ）失效的边界，混合组合形式也能正确缩写为 `~`。 / Fixed home abbreviation when case folding changes the prefix length (e.g. İ).
+- **提示 / Copy**：`off`/`on` 的提示与文档写明切回/替代原生状态栏、选择持久化且重复执行无变化。 / `off`/`on` messages and docs now state that `off` hands the footer back to the native one, the choice persists, and repeat runs change nothing.
 
 ## 0.3.0
 

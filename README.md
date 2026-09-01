@@ -95,12 +95,14 @@ added. New LSP states are parsed on demand rather than pre-declared.
 ```text
 /signal-footer legend              show the metric legend above the editor
 /signal-footer hide                hide the legend (this session)
-/signal-footer off                 restore the native footer and persist that choice
+/signal-footer off                 restore the native footer and persist that choice; repeat runs change nothing
 /signal-footer on                  enable this footer and persist that choice
 /signal-footer status              show path, enabled state, locale, load error, and invalid fields from the last load
 /signal-footer locale auto|zh|en   persist UI language (auto follows the host locale)
 /signal-footer set <show*> <on|off>
 ```
+
+`off` and `on` persist across sessions and are idempotent: after `off`, Pi's native footer takes over until you run `/signal-footer on`.
 
 The `show*` keys are `showProject`, `showSessionName`, `showDuration`,
 `showTurns`, `showSpeed`, `showBranch`, and `showCacheRatio`.
