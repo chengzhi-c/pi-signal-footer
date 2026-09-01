@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  LEGEND_LINES,
   contextBarParts,
   formatCacheHitRatio,
   formatContext,
@@ -285,7 +284,7 @@ test("abbreviates home prefixes even when case folding changes their length", ()
 });
 
 test("legend explains every glyph the footer renders", () => {
-  const guide = LEGEND_LINES.join(" ");
+  const guide = legendLines("zh").join(" ");
   // 与 index.ts 渲染符号同步：新增或改名符号时，同步更新图例与此清单
   for (const glyph of ["↓", "↑", "↻", "✎", "⎔", "⇄", "◷", "⎇", "✦", "›", "·", "MCP", "LSP", "✗", "$"]) {
     assert.ok(guide.includes(glyph), `legend missing "${glyph}"`);

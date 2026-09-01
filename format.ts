@@ -62,6 +62,7 @@ export function copyFor(locale: UiLocale) {
   return COPY[locale];
 }
 
+/** Pi widget 最多显示 10 个数组项；80 列终端扣除 Text padding 后只有 78 列可用。预算测试约束这两个上限。 */
 export function legendLines(locale: UiLocale): readonly string[] {
   return COPY[locale].legend;
 }
@@ -69,9 +70,6 @@ export function legendLines(locale: UiLocale): readonly string[] {
 export function formatTurns(count: number, locale: UiLocale): string {
   return COPY[locale].turns(count);
 }
-
-/** Pi widget 最多显示 10 个数组项；80 列终端扣除 Text padding 后只有 78 列可用。预算测试约束这两个上限。 */
-export const LEGEND_LINES = COPY.zh.legend;
 
 export type ProjectPathParts = { parent: string; name: string };
 export type ContextBarParts = { fill: string; track: string };

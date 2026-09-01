@@ -12,7 +12,7 @@ import {
   resolveHome,
   SETTINGS_FILE,
 } from "../index.ts";
-import { LEGEND_LINES } from "../format.ts";
+import { legendLines } from "../format.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 type Handler = (...args: unknown[]) => unknown;
@@ -341,7 +341,7 @@ test("sacrifices footer fields in the order the legend advertises", async () => 
   assert.ok(drops.reasoning > drops.model, `reasoning should drop before the model name: ${drops.reasoning} vs ${drops.model}`);
 
   // 图例里那句话必须与上面实测的顺序一致，否则就是文档在撒谎。
-  const advertised = LEGEND_LINES.find((line) => line.includes("让位"));
+  const advertised = legendLines("zh").find((line) => line.includes("让位"));
   assert.ok(advertised, "legend no longer states the degradation order");
   const at = (token: string) => advertised!.indexOf(token);
   assert.ok(at("上下文") < at("项目"), `legend order wrong: ${advertised}`);
