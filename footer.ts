@@ -228,10 +228,7 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme): stri
 
   const chips: string[] = [];
   for (const [, text] of entries) {
-    const clean = sanitizeStatusText(text);
-    if (!clean) continue;
-
-    const mcp = parseMcpStatus(clean);
+    const mcp = parseMcpStatus(text);
     if (mcp) {
       if (mcp.enabled > 0) {
         // 懒连接服务器闲置时 0 连接属正常，全未连用中性灰而不是故障红
@@ -241,7 +238,7 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme): stri
       continue;
     }
 
-    const lsp = parseLspStatus(clean);
+    const lsp = parseLspStatus(text);
     if (lsp) {
       for (const chip of lsp) {
         chips.push(
@@ -253,7 +250,8 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme): stri
       continue;
     }
 
-    chips.push(clean);
+    const clean = sanitizeStatusText(text);
+    if (clean) chips.push(clean);
   }
 
   if (chips.length === 0) return undefined;
