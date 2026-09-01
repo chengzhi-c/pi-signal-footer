@@ -2,6 +2,10 @@
 
 仅记录用户可感知的主要变化。 / Major user-visible changes only.
 
+## 0.3.2
+
+- **路径 / Paths**：修复家目录缩写在大小写折叠改变前缀长度时（如 İ）失效的边界，混合组合形式也能正确缩写为 `~`。 / Fixed home abbreviation when case folding changes the prefix length (e.g. İ).
+
 ## 0.3.0
 
 - **配置 / Settings**：支持持久化、`status`、`locale` 和字段开关。 / Added persistent settings, status, locale, and field toggles.
