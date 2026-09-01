@@ -175,6 +175,16 @@ test("renders unknown context percentage without NaN", async () => {
   assert.doesNotMatch(output, /100\/1\.0k/);
 });
 
+test("renders unknown token counts without losing a known percentage", async () => {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: null, contextWindow: 1000, percent: 37 });
+  await startSession(handlers, context);
+  const output = renderLines(context, 160).join("\n");
+
+  assert.match(output, /37%/);
+  assert.match(output, /\?\/1\.0k/);
+});
+
 test("computes session duration from the earliest and latest entry timestamps", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
