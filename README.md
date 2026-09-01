@@ -6,7 +6,7 @@ A status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono)
 
 ```text
 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main   ⎔ 12% [━━─────────────────] 36k/300k
-↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                             ⇄ MCP 1/1 · LSP typescript
+↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1 turn · 45 tok/s                                          ⇄ MCP 1/1 · LSP typescript
 ```
 
 Captured from a 140-column terminal with extension statuses present; the status-bearing line is padded to the full width, which is why the chips sit flush right.
