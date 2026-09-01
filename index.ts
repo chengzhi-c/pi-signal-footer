@@ -96,12 +96,9 @@ export function hostVersionTooOld(version: string, minimum = MIN_HOST_VERSION): 
   const required = parseVersion(minimum);
   if (!actual || !required) return true;
 
-  for (let index = 0; index < actual.numbers.length; index++) {
-    const actualPart = actual.numbers[index];
-    const requiredPart = required.numbers[index];
-    if (actualPart === undefined || requiredPart === undefined) return true;
-    if (actualPart !== requiredPart) {
-      return actualPart < requiredPart;
+  for (const index of [0, 1, 2] as const) {
+    if (actual.numbers[index] !== required.numbers[index]) {
+      return actual.numbers[index] < required.numbers[index];
     }
   }
   return comparePrerelease(actual.prerelease, required.prerelease) < 0;
