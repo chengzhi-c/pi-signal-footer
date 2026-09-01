@@ -880,6 +880,21 @@ test("clears the previous response speed when a session shuts down", async () =>
   assert.doesNotMatch(renderLines(second).join("\n"), /tok\/s/);
 });
 
+test("keeps the first-token timestamp when the first update lands at time zero", async () => {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+
+  // 首 token 落在 0ms：0 不能被当作「未记录」哨兵，否则会被后续 update 覆盖，
+  // 把全程 2000ms 算成 1000ms（100 tok/s）。
+  handleStream("start", { role: "assistant" }, 0, context.ctx.sessionManager);
+  handleStream("update", { role: "assistant" }, 0, context.ctx.sessionManager);
+  handleStream("update", { role: "assistant" }, 1000, context.ctx.sessionManager);
+  handleStream("end", { role: "assistant", usage: { output: 100 } }, 2000, context.ctx.sessionManager);
+
+  assert.match(renderLines(context, 160).join("\n"), /50 tok\/s/);
+});
+
 test("locale en uses English turn labels", async () => {
   const { handlers, commands } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });

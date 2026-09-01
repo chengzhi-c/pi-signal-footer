@@ -50,7 +50,7 @@ type SessionEntries = ReturnType<ExtensionContext["sessionManager"]["getEntries"
 
 // 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
 // （剔除 TTFT/排队），message_end 用精确 usage.output 收口。
-type StreamState = { timing: { tRequest: number; tFirst: number } | null; lastRate: string };
+type StreamState = { timing: { tRequest: number; tFirst: number | null } | null; lastRate: string };
 type StreamSessionKey = object;
 
 // 无会话参数的导出辅助函数仍使用独立兼容键；扩展事件路径始终传入 sessionManager。
@@ -425,18 +425,18 @@ export function handleStream(kind: StreamKind, message: StreamMessage, now: numb
   if (message.role !== "assistant") return;
   if (kind === "start") {
     const state = streamStateFor(session);
-    state.timing = { tRequest: now, tFirst: 0 };
+    state.timing = { tRequest: now, tFirst: null };
     state.lastRate = "";
     return;
   }
   const state = streamStates.get(streamKey(session));
   if (!state) return;
   if (kind === "update") {
-    if (state.timing && !state.timing.tFirst) state.timing.tFirst = now;
+    if (state.timing && state.timing.tFirst === null) state.timing.tFirst = now;
     return;
   }
   if (!state.timing) return;
-  const start = state.timing.tFirst || state.timing.tRequest;
+  const start = state.timing.tFirst ?? state.timing.tRequest;
   const ms = now - start;
   state.timing = null;
   if (message.usage?.output && ms > 0) state.lastRate = formatSpeed(message.usage.output, ms);
