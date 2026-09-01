@@ -277,6 +277,13 @@ test("splits project path with home abbreviation for the identity slot", () => {
   assert.deepEqual(splitProjectPath("//srv/share/pkg", ""), { parent: "//srv/share/", name: "pkg" });
 });
 
+test("abbreviates home prefixes even when case folding changes their length", () => {
+  // İ 折叠为 i + U+0307，长度改变；cwd 与家目录对同一路径段使用不同组合形式时，
+  // 后缀长度差仍指向分隔符，要照常缩写为 ~。
+  assert.deepEqual(splitProjectPath("C:\\Users\\Kagawİ\\app", "C:\\Users\\Kagawi\u0307"), { parent: "~/", name: "app" });
+  assert.deepEqual(splitProjectPath("C:\\Users\\Kagawi\u0307\\app", "C:\\Users\\Kagawİ"), { parent: "~/", name: "app" });
+});
+
 test("legend explains every glyph the footer renders", () => {
   const guide = LEGEND_LINES.join(" ");
   // 与 index.ts 渲染符号同步：新增或改名符号时，同步更新图例与此清单

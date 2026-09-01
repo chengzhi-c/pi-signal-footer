@@ -192,8 +192,11 @@ export function splitProjectPath(cwd = "", home = ""): ProjectPathParts {
   const comparableCwd = windowsPath ? c.toLowerCase() : c;
   const comparableHome = windowsPath ? h.toLowerCase() : h;
   if (h && comparableCwd === comparableHome) return { parent: "", name: "~" };
-  if (h && comparableCwd.startsWith(comparableHome) && (c[h.length] === "\\" || c[h.length] === "/")) {
-    display = `~${c.slice(h.length)}`;
+  if (h && comparableCwd.startsWith(comparableHome)) {
+    // 大小写折叠可能改变串长（İ 折叠为 i+U+0307），按折叠后的后缀长度从原串
+    // 尾部取，不依赖「折叠不改长」；rest 以分隔符开头才缩写。
+    const rest = c.slice(c.length - (comparableCwd.length - comparableHome.length));
+    if (rest.startsWith("\\") || rest.startsWith("/")) display = `~${rest}`;
   }
 
   const parts = display.split(/[\\/]/).filter(Boolean);
