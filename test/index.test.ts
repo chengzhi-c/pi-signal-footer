@@ -154,7 +154,7 @@ async function startSession(handlers: Map<string, Handler>, context: Harness) {
 }
 
 async function setField(commands: Map<string, Handler>, ctx: TestContext, key: string, value: "on" | "off") {
-  await commands.get("signal-footer")!(`set ${key} ${value}`, ctx);
+  await commands.get("signal-footer")!(`${key} ${value}`, ctx);
 }
 
 /** 测试需要确定性的 UI 文案时固定 locale；默认 auto 会跟随运行机器的语言环境。
@@ -686,7 +686,7 @@ test("unsupported hosts do not install a footer from control commands", async ()
   await startSession(handlers, context);
   await commands.get("signal-footer")!("on", context.ctx);
   await commands.get("signal-footer")!("locale en", context.ctx);
-  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+  await commands.get("signal-footer")!("branch off", context.ctx);
 
   assert.equal(context.footerCalls.length, 0);
 });
@@ -741,6 +741,39 @@ test("handles legend, hide, and invalid command arguments", async () => {
 
   await command("unknown", context.ctx);
   assert.equal(context.notifications.at(-1)?.level, "warning");
+});
+
+test("item commands toggle, flip, and reject bad values", async () => {
+  const { handlers, commands, agentDir } = createApi();
+  pinLocale(agentDir, "zh");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  const command = commands.get("signal-footer")!;
+
+  await command("path off", context.ctx);
+  assert.equal(context.notifications.at(-1)?.message, "路径已隐藏");
+  assert.doesNotMatch(renderLines(context, 160).join("\n"), /C:\/work\/demo/);
+
+  await command("path", context.ctx);
+  assert.equal(context.notifications.at(-1)?.message, "路径已显示");
+  assert.match(renderLines(context, 160).join("\n"), /C:\/work\/demo/);
+
+  await command("path banana", context.ctx);
+  assert.equal(context.notifications.at(-1)?.level, "warning");
+  assert.match(renderLines(context, 160).join("\n"), /C:\/work\/demo/, "an invalid value must not change state");
+});
+
+test("help prints the command surface instead of the legend", async () => {
+  const { handlers, commands, agentDir } = createApi();
+  pinLocale(agentDir, "en");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+
+  await commands.get("signal-footer")!("help", context.ctx);
+  const note = context.notifications.at(-1);
+  assert.equal(note?.level, "info");
+  assert.match(note?.message ?? "", /Usage: .*path\|session/);
+  assert.ok(context.widgetCalls.every((call) => call.key !== "pi-signal-footer-legend"));
 });
 
 test("off clears the legend and shutdown clears both", async () => {
@@ -1013,7 +1046,7 @@ test("does not clear an existing footer when starting disabled", async () => {
   assert.equal(context.footerCalls.at(-1), otherFooter, "disabled startup must not clear another footer");
 });
 
-test("set showBranch false writes the settings file and hides the branch", async () => {
+test("showBranch false writes the settings file and hides the branch", async () => {
   const { handlers, commands, agentDir } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.footerData.getGitBranch = () => "main";
@@ -1032,7 +1065,7 @@ test("configuration changes clear an active footer when the loaded settings disa
   assert.equal(typeof context.footerCalls.at(-1), "function");
 
   writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: false }), "utf8");
-  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+  await commands.get("signal-footer")!("branch off", context.ctx);
 
   assert.equal(context.footerCalls.at(-1), undefined);
 });
@@ -1045,7 +1078,7 @@ test("disabling loaded settings also clears a visible legend", async () => {
   await startSession(handlers, context);
   await commands.get("signal-footer")!("legend", context.ctx);
   writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: false }), "utf8");
-  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+  await commands.get("signal-footer")!("branch off", context.ctx);
 
   assert.equal(context.footerCalls.at(-1), undefined);
   assert.equal(context.widgetCalls.at(-1)?.content, undefined);
@@ -1094,6 +1127,7 @@ test("reports invalid setting fields and exposes diagnostics in status", async (
   assert.match(status, /enabled: on/);
   assert.match(status, /locale: en/);
   assert.match(status, /invalid: enabled/);
+  assert.match(status, /branch: on/, "status must list per-item switch states");
 });
 
 test("a successful settings write clears the prior diagnostic warning state", async () => {
@@ -1105,7 +1139,7 @@ test("a successful settings write clears the prior diagnostic warning state", as
   await startSession(handlers, context);
   assert.equal(context.notifications.filter((item) => item.level === "warning").length, 1);
 
-  await commands.get("signal-footer")!("set showBranch off", context.ctx);
+  await commands.get("signal-footer")!("branch off", context.ctx);
   writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: "false" }), "utf8");
   await commands.get("signal-footer")!("status", context.ctx);
   assert.equal(context.notifications.filter((item) => item.level === "warning").length, 2);

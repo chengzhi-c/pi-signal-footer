@@ -29,16 +29,28 @@ export { handleStream, resolveHome } from "./footer.ts";
 
 import {
   copyFor,
+  itemDisplayName,
   legendLines,
   resolveLocale,
 } from "./format.ts";
 
 type ShowKey = (typeof SHOW_KEYS)[number];
 
-function findShowKey(value: string): ShowKey | undefined {
-  const lower = value.toLowerCase();
-  return SHOW_KEYS.find((key) => key.toLowerCase() === lower);
-}
+const CHIP_ITEMS = [
+  ["path", "showProject"],
+  ["session", "showSessionName"],
+  ["time", "showDuration"],
+  ["turns", "showTurns"],
+  ["speed", "showSpeed"],
+  ["branch", "showBranch"],
+  ["cache", "showCacheRatio"],
+] as const satisfies readonly (readonly [string, ShowKey])[];
+
+// 短名词是对外命令面；完整设置键名保留为隐式别名，旧习惯不至于断。
+const CHIP_COMMANDS: Readonly<Record<string, ShowKey>> = Object.freeze({
+  ...Object.fromEntries(CHIP_ITEMS.map(([token, key]) => [token, key])),
+  ...Object.fromEntries(SHOW_KEYS.map((key) => [key.toLowerCase(), key])),
+});
 
 function parseToggle(value: string): boolean | undefined {
   if (value === "on" || value === "true" || value === "1") return true;
@@ -228,8 +240,13 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
         const current = loaded.settings;
         const text = copyFor(resolveLocale(current.locale));
 
-        if (action === "" || action === "legend" || action === "help") {
+        if (action === "" || action === "legend") {
           showLegend(ctx, resolveLocale(current.locale));
+          return;
+        }
+
+        if (action === "help") {
+          ctx.ui.notify(text.usage, "info");
           return;
         }
 
@@ -256,9 +273,13 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
         if (action === "status") {
           const error = loaded.error ?? "none";
           const invalid = loaded.invalidKeys.join(", ") || "none";
+          const items = CHIP_ITEMS
+            .map(([token, key]) => token + ": " + (current[key] ? "on" : "off"))
+            .join(" | ");
           ctx.ui.notify(
             join(agentDir(), SETTINGS_FILE)
               + " | enabled: " + (current.enabled ? "on" : "off")
+              + " | " + items
               + " | locale: " + resolveLocale(current.locale)
               + " | error: " + error
               + " | invalid: " + invalid,
@@ -283,17 +304,21 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           return;
         }
 
-        if (action === "set") {
-          const key = findShowKey(parts[1] ?? "");
-          const value = parseToggle((parts[2] ?? "").toLowerCase());
-          if (!key || value === undefined) {
-            ctx.ui.notify(text.setUsage, "warning");
+        const chip = CHIP_COMMANDS[action];
+        if (chip) {
+          const raw = parts[1]?.toLowerCase();
+          const value = raw === undefined ? undefined : parseToggle(raw);
+          if (raw !== undefined && value === undefined) {
+            ctx.ui.notify(text.itemUsage, "warning");
             return;
           }
-          const next = { ...current, [key]: value };
+          const next = { ...current, [chip]: value ?? !current[chip] };
           if (!persist(ctx, next)) return;
           applyFooterSetting(ctx, next);
-          ctx.ui.notify(copyFor(resolveLocale(next.locale)).settingChanged(key, value), "info");
+          ctx.ui.notify(
+            text.itemToggled(itemDisplayName(chip, resolveLocale(next.locale)), next[chip]),
+            "info",
+          );
           return;
         }
 

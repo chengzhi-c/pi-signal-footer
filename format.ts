@@ -27,9 +27,9 @@ const COPY = {
     unreadableSettings: "无法读取 pi-signal-footer.json，已回退默认设置。",
     writeFailed: "无法写入 pi-signal-footer.json。",
     localeChanged: (locale: UiLocale) => "界面语言：" + locale,
-    settingChanged: (key: string, enabled: boolean) => "已更新 " + key + "：" + (enabled ? "开" : "关"),
-    usage: "用法: /signal-footer [legend|hide|off|on|status|locale|set <show*> <on|off>]",
-    setUsage: "用法: /signal-footer set <show*> <on|off>",
+    itemToggled: (name: string, enabled: boolean) => `${name}已${enabled ? "显示" : "隐藏"}`,
+    usage: "用法: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<项> [on|off]]；项: path|session|time|turns|speed|branch|cache",
+    itemUsage: "用法: /signal-footer <path|session|time|turns|speed|branch|cache> [on|off]（省略 on|off 即切换）",
     localeUsage: "用法: /signal-footer locale auto|zh|en",
   },
   en: {
@@ -51,15 +51,31 @@ const COPY = {
     unreadableSettings: "Could not read pi-signal-footer.json; using defaults.",
     writeFailed: "Could not write pi-signal-footer.json.",
     localeChanged: (locale: UiLocale) => "Locale: " + locale,
-    settingChanged: (key: string, enabled: boolean) => "Updated " + key + ": " + (enabled ? "on" : "off"),
-    usage: "Usage: /signal-footer [legend|hide|off|on|status|locale|set <show*> <on|off>]",
-    setUsage: "Usage: /signal-footer set <show*> <on|off>",
+    itemToggled: (name: string, enabled: boolean) => `${name} ${enabled ? "shown" : "hidden"}`,
+    usage: "Usage: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<item> [on|off]]; item: path|session|time|turns|speed|branch|cache",
+    itemUsage: "Usage: /signal-footer <path|session|time|turns|speed|branch|cache> [on|off] (omit on|off to toggle)",
     localeUsage: "Usage: /signal-footer locale auto|zh|en",
   },
 } as const;
 
 export function copyFor(locale: UiLocale) {
   return COPY[locale];
+}
+
+const ITEM_NAMES = {
+  showProject: { zh: "路径", en: "path" },
+  showSessionName: { zh: "会话名", en: "session name" },
+  showDuration: { zh: "时长", en: "duration" },
+  showTurns: { zh: "轮次", en: "turns" },
+  showSpeed: { zh: "速率", en: "speed" },
+  showBranch: { zh: "分支", en: "branch" },
+  showCacheRatio: { zh: "缓存命中率", en: "cache hit" },
+} as const;
+
+export type ItemKey = keyof typeof ITEM_NAMES;
+
+export function itemDisplayName(key: ItemKey, locale: UiLocale): string {
+  return ITEM_NAMES[key][locale];
 }
 
 /** Pi widget 最多显示 10 个数组项；80 列终端扣除 Text padding 后只有 78 列可用。预算测试约束这两个上限。 */
