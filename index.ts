@@ -257,8 +257,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           const error = loaded.error ?? "none";
           const invalid = loaded.invalidKeys.join(", ") || "none";
           ctx.ui.notify(
-            SETTINGS_FILE
-              + ": " + join(agentDir(), SETTINGS_FILE)
+            join(agentDir(), SETTINGS_FILE)
               + " | enabled: " + (current.enabled ? "on" : "off")
               + " | locale: " + resolveLocale(current.locale)
               + " | error: " + error
