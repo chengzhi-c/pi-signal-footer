@@ -63,7 +63,7 @@ Settings live in `pi-signal-footer.json` under Pi's agent directory (`getAgentDi
 }
 ```
 
-`/signal-footer set`, `/signal-footer locale`, and `/signal-footer off|on` write this file. Editing the package source is no longer the configuration path; if you previously changed `CONFIG` in `index.ts`, copy those flags here.
+`/signal-footer` item toggles, `/signal-footer locale`, and `/signal-footer off|on` write this file. Editing the package source is no longer the configuration path; if you previously changed `CONFIG` in `index.ts`, copy those flags here.
 
 ## Recognized upstream status text
 
@@ -95,17 +95,23 @@ added. New LSP states are parsed on demand rather than pre-declared.
 ```text
 /signal-footer legend              show the metric legend above the editor
 /signal-footer hide                hide the legend (this session)
+/signal-footer help                show every command
 /signal-footer off                 restore the native footer and persist that choice; repeat runs change nothing
 /signal-footer on                  enable this footer and persist that choice
-/signal-footer status              show path, enabled state, locale, load error, and invalid fields from the last load
+/signal-footer path [on|off]       show/hide the project path (omit on|off to toggle)
+/signal-footer session [on|off]    show/hide the session name
+/signal-footer time [on|off]       show/hide the session duration
+/signal-footer turns [on|off]      show/hide the turn count
+/signal-footer speed [on|off]      show/hide the response rate
+/signal-footer branch [on|off]     show/hide the git branch
+/signal-footer cache [on|off]      show/hide the cache hit ratio
+/signal-footer status              show the settings path, master switch, per-item states, locale, load error, and invalid fields
 /signal-footer locale auto|zh|en   persist UI language (auto follows the host locale)
-/signal-footer set <show*> <on|off>
 ```
 
 `off` and `on` persist across sessions and are idempotent: after `off`, Pi's native footer takes over until you run `/signal-footer on`.
 
-The `show*` keys are `showProject`, `showSessionName`, `showDuration`,
-`showTurns`, `showSpeed`, `showBranch`, and `showCacheRatio`.
+Each item name doubles as a command: `/signal-footer path off` hides the project path, and `/signal-footer path` alone flips it. Item choices persist across sessions, just like `off`/`on`.
 
 ## Development
 
