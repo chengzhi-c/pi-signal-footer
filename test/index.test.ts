@@ -469,6 +469,25 @@ test("degrades the identity block instead of truncating it when the branch is lo
   }
 });
 
+test("truncates the model name only at or below the measured width", async () => {
+  // README 承诺模型名约 40 列以下才被截短。钉住实测边界（≤40 截断、≥41 完整），
+  // 任一侧漂移时：先重跑宽度扫描，再同步更新本钉与 README。
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
+  context.ctx.model = { provider: "opencode-go", id: "deepseek-v4-flash-0731", contextWindow: 200_000, reasoning: true };
+  context.ctx.thinkingLevel = "max";
+  context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\a-very-long-project-directory-name-here";
+  context.ctx.sessionManager.getSessionName = () => "fix-context-bar";
+  context.footerData.getGitBranch = () => "feature/a-very-long-branch-name-that-eats-space";
+  await startSession(handlers, context);
+  const footer = openFooter(context);
+
+  assert.ok(!footer.render(40)[0]?.includes("deepseek-v4-flash-0731"));
+  for (const width of [41, 45, 50]) {
+    assert.ok(footer.render(width)[0]?.includes("deepseek-v4-flash-0731"), `model lost at width ${width}`);
+  }
+});
+
 test("never renders a richer context part without the parts that outrank it", async () => {
   // 上下文降级阶梯：条(装饰) → 数值 → 百分比(内容)。任一行里，靠后的部分出现时
   // 靠前的部分必须都在——否则说明丢错了顺序。跨宽度的档位切换不受此约束，
