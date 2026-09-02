@@ -1,5 +1,7 @@
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
+import type { ShowKey } from "./settings.ts";
+
 export type UiLocale = "zh" | "en";
 
 export function resolveLocale(setting: "auto" | UiLocale, detected = Intl.DateTimeFormat().resolvedOptions().locale): UiLocale {
@@ -28,8 +30,10 @@ const COPY = {
     writeFailed: "无法写入 pi-signal-footer.json。",
     localeChanged: (locale: UiLocale) => "界面语言：" + locale,
     itemToggled: (name: string, enabled: boolean) => `${name}已${enabled ? "显示" : "隐藏"}`,
-    usage: "用法: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<项> [on|off]]；项: path|session|time|turns|speed|branch|cache",
-    itemUsage: "用法: /signal-footer <path|session|time|turns|speed|branch|cache> [on|off]（省略 on|off 即切换）",
+    usage: (items: string) =>
+      `用法: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<项> [on|off]]；项: ${items}`,
+    itemUsage: (items: string) =>
+      `用法: /signal-footer <${items}> [on|off]（省略 on|off 即切换）`,
     localeUsage: "用法: /signal-footer locale auto|zh|en",
   },
   en: {
@@ -52,8 +56,10 @@ const COPY = {
     writeFailed: "Could not write pi-signal-footer.json.",
     localeChanged: (locale: UiLocale) => "Locale: " + locale,
     itemToggled: (name: string, enabled: boolean) => `${name} ${enabled ? "shown" : "hidden"}`,
-    usage: "Usage: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<item> [on|off]]; item: path|session|time|turns|speed|branch|cache",
-    itemUsage: "Usage: /signal-footer <path|session|time|turns|speed|branch|cache> [on|off] (omit on|off to toggle)",
+    usage: (items: string) =>
+      `Usage: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<item> [on|off]]; item: ${items}`,
+    itemUsage: (items: string) =>
+      `Usage: /signal-footer <${items}> [on|off] (omit on|off to toggle)`,
     localeUsage: "Usage: /signal-footer locale auto|zh|en",
   },
 } as const;
@@ -70,7 +76,7 @@ const ITEM_NAMES = {
   showSpeed: { zh: "速率", en: "speed" },
   showBranch: { zh: "分支", en: "branch" },
   showCacheRatio: { zh: "缓存命中率", en: "cache hit" },
-} as const;
+} as const satisfies Record<ShowKey, { zh: string; en: string }>;
 
 export type ItemKey = keyof typeof ITEM_NAMES;
 

@@ -36,6 +36,8 @@ export const DEFAULT_SETTINGS: Readonly<FooterSettings> = Object.freeze({
   showCacheRatio: true,
 });
 
+export type ShowKey = Exclude<keyof FooterSettings, "enabled" | "locale">;
+
 export const SHOW_KEYS = [
   "showProject",
   "showSessionName",
@@ -44,7 +46,19 @@ export const SHOW_KEYS = [
   "showSpeed",
   "showBranch",
   "showCacheRatio",
-] as const;
+] as const satisfies readonly ShowKey[];
+
+export const SHOW_TOKENS = {
+  showProject: "path",
+  showSessionName: "session",
+  showDuration: "time",
+  showTurns: "turns",
+  showSpeed: "speed",
+  showBranch: "branch",
+  showCacheRatio: "cache",
+} as const satisfies Record<ShowKey, string>;
+
+export const SHOW_ITEM_TOKENS = SHOW_KEYS.map((key) => SHOW_TOKENS[key]).join("|");
 
 export type SettingsParseResult = {
   settings: FooterSettings;

@@ -4,10 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
 
+import { copyFor } from "../format.ts";
 import {
   DEFAULT_SETTINGS,
   SETTINGS_FILE,
+  SHOW_ITEM_TOKENS,
   SHOW_KEYS,
+  SHOW_TOKENS,
   loadSettings,
   parseSettings,
   saveSettings,
@@ -25,16 +28,21 @@ function tempDir(): string {
   return dir;
 }
 
-test("keeps the configurable show keys in one exported schema list", () => {
-  assert.deepEqual(SHOW_KEYS, [
-    "showProject",
-    "showSessionName",
-    "showDuration",
-    "showTurns",
-    "showSpeed",
-    "showBranch",
-    "showCacheRatio",
-  ]);
+test("interpolates every show-item token into help copy", () => {
+  const tokens = SHOW_ITEM_TOKENS.split("|");
+  assert.equal(new Set(tokens).size, tokens.length);
+  for (const key of SHOW_KEYS) {
+    assert.notEqual(SHOW_TOKENS[key], key.toLowerCase());
+  }
+  for (const locale of ["zh", "en"] as const) {
+    const text = copyFor(locale);
+    const usage = text.usage(SHOW_ITEM_TOKENS);
+    const itemUsage = text.itemUsage(SHOW_ITEM_TOKENS);
+    for (const token of tokens) {
+      assert.ok(usage.includes(token), `${locale} usage missing ${token}`);
+      assert.ok(itemUsage.includes(token), `${locale} itemUsage missing ${token}`);
+    }
+  }
 });
 
 test("reports invalid known fields while preserving valid fields and ignoring unknown keys", () => {
