@@ -298,6 +298,7 @@ function buildStatsLine(
   totals: UsageTotals,
   session: SessionStats,
   settings: FooterSettings,
+  locale: ReturnType<typeof resolveLocale>,
   lastRate: string,
 ): { stats: string; trafficGroup: string; cacheGroup: string; cost: string; timeGroup: string } {
   const pipe = theme.fg("muted", " │ ");
@@ -312,7 +313,7 @@ function buildStatsLine(
     timeParts.push(theme.fg("text", formatDuration(session.lastTs - session.firstTs)));
   }
   if (settings.showTurns && session.turns > 0) {
-    timeParts.push(theme.fg("text", formatTurns(session.turns, resolveLocale(settings.locale))));
+    timeParts.push(theme.fg("text", formatTurns(session.turns, locale)));
   }
   if (settings.showSpeed && lastRate) {
     timeParts.push(theme.fg("text", lastRate));
@@ -395,19 +396,21 @@ function renderFooter(
   totals: UsageTotals,
   session: SessionStats,
   settings: FooterSettings,
+  locale: ReturnType<typeof resolveLocale>,
 ): string[] {
   return layoutLines(
     width,
     theme,
     buildIdentityLevels(ctx, footerData, theme, settings),
     readContextField(ctx, theme),
-    buildStatsLine(theme, totals, session, settings, streamRate(ctx.sessionManager)),
+    buildStatsLine(theme, totals, session, settings, locale, streamRate(ctx.sessionManager)),
     statusField(footerData, theme),
   );
 }
 
 export function installFooter(ctx: ExtensionContext, settings: FooterSettings): void {
   ctx.ui.setFooter((tui, theme, footerData) => {
+    const locale = resolveLocale(settings.locale);
     const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
 
     return {
@@ -415,7 +418,7 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings): 
       invalidate() {},
       render(width: number): string[] {
         const { totals, session } = computeSessionDerived(ctx.sessionManager.getEntries());
-        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), totals, session, settings);
+        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), totals, session, settings, locale);
       },
     };
   });

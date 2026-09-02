@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { legendLines } from "../format.ts";
+import { installFooter } from "../footer.ts";
+import { DEFAULT_SETTINGS, type FooterSettings } from "../settings.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import {
@@ -49,6 +51,24 @@ test("sanitizes identity fields without removing third-party status colors", asy
   assert.match(output, /branch name/);
   assert.match(output, /\u001b\[31mRelay: ready\u001b\[0m/);
   assert.doesNotMatch(output.replace("\u001b[31mRelay: ready\u001b[0m", ""), /\u001b/);
+});
+
+test("freezes auto locale for a footer factory", () => {
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.entries.push({
+    type: "message",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    message: { role: "user" },
+  });
+
+  const settings: FooterSettings = { ...DEFAULT_SETTINGS, locale: "zh" };
+  installFooter(context.ctx as unknown as Parameters<typeof installFooter>[0], settings);
+  const footer = openFooter(context);
+  assert.match(footer.render(160).join("\n"), /1轮/);
+
+  settings.locale = "en";
+  const stable = footer.render(160).join("\n");
+  assert.match(stable, /1轮/);
 });
 
 test("renders unknown token counts without losing a known percentage", async () => {

@@ -69,10 +69,12 @@ const WIDTH = 140;
 
 for (const count of [100, 1_000, 10_000]) {
   const { component } = makeFooter(count);
-  component.render(WIDTH);
   const samples: number[] = [];
   const before = process.memoryUsage().heapUsed;
-  let maxWidth = 0;
+  const coldStart = performance.now();
+  const coldLines = component.render(WIDTH);
+  const coldMs = performance.now() - coldStart;
+  let maxWidth = Math.max(...coldLines.map((line) => visibleWidth(line)));
 
   for (let iteration = 0; iteration < ITERATIONS; iteration++) {
     const start = performance.now();
@@ -83,7 +85,8 @@ for (const count of [100, 1_000, 10_000]) {
 
   const after = process.memoryUsage().heapUsed;
   console.log(
-    count + " entries: p50 " + percentile(samples, 0.5).toFixed(3)
+    count + " entries: cold " + coldMs.toFixed(3)
+      + " ms, stable p50 " + percentile(samples, 0.5).toFixed(3)
       + " ms, p95 " + percentile(samples, 0.95).toFixed(3)
       + " ms, heap delta " + ((after - before) / 1024).toFixed(1)
       + " KiB, max width " + maxWidth,
