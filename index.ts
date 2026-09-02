@@ -120,9 +120,13 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
         : loaded.invalidKeys.length > 0
           ? copyFor(locale).invalidFields(loaded.invalidKeys)
           : undefined;
-    if (issue && !warnedInvalid) {
-      warnedInvalid = true;
-      ctx.ui.notify(issue, "warning");
+    if (issue) {
+      if (!warnedInvalid) {
+        warnedInvalid = true;
+        ctx.ui.notify(issue, "warning");
+      }
+    } else {
+      warnedInvalid = false;
     }
     return loaded;
   };
@@ -160,12 +164,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
         warnUnsupportedHost(ctx);
         return;
       }
-      const current = applyLoaded(ctx).settings;
-      if (current.enabled) installConfiguredFooter(ctx, current);
-      else {
-        clearLegend(ctx);
-        clearConfiguredFooter(ctx);
-      }
+      applyFooterSetting(ctx, applyLoaded(ctx).settings);
     });
 
     pi.on("session_shutdown", async (_event, ctx) => {
@@ -203,18 +202,11 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           return;
         }
 
-        if (action === "off") {
-          if (!persist(ctx, { ...current, enabled: false })) return;
-          clearLegend(ctx);
-          clearConfiguredFooter(ctx);
-          ctx.ui.notify(text.off, "info");
-          return;
-        }
-
-        if (action === "on") {
-          if (!persist(ctx, { ...current, enabled: true })) return;
-          installConfiguredFooter(ctx, { ...current, enabled: true });
-          ctx.ui.notify(text.on, "info");
+        if (action === "off" || action === "on") {
+          const next = { ...current, enabled: action === "on" };
+          if (!persist(ctx, next)) return;
+          applyFooterSetting(ctx, next);
+          ctx.ui.notify(action === "off" ? text.off : text.on, "info");
           return;
         }
 

@@ -108,7 +108,6 @@ function entryUsage(entry: SessionEntry): UsageLike | undefined {
 }
 
 // 每个可归属条目都是一次请求的增量；摘要和压缩也计入会话总量。
-// ponytail: 每次 render 全量扫描 entries；10k 级会话若 p95 不可接受，按 entries 引用缓存 totals。
 function computeSessionDerived(entries: SessionEntries): { totals: UsageTotals; session: SessionStats } {
   const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const session: SessionStats = { firstTs: Number.NaN, lastTs: Number.NaN, turns: 0 };

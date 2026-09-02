@@ -2,6 +2,10 @@
 
 仅记录用户可感知的主要变化。 / Major user-visible changes only.
 
+## 0.4.1
+
+- **配置 / Settings**：配置文件从损坏恢复后再改坏会再次告警。 / Warn again if a repaired settings file becomes invalid.
+
 ## 0.4.0
 
 - **命令 / Commands**：单项开关改为 `/signal-footer path|session|time|turns|speed|branch|cache [on|off]`（省略即切换），替代 `set <show*>`；不再接受 `showproject` 等设置键名别名。`help` 显示命令列表，`status` 列出各项开关。 / Per-item commands replace `set <show*>`; setting-key aliases are no longer accepted. `help` lists the commands and `status` shows per-item states.

@@ -307,6 +307,26 @@ test("a successful settings write clears the prior diagnostic warning state", as
   assert.equal(context.notifications.filter((item) => item.level === "warning").length, 2);
 });
 
+test("warns again after a repaired settings file becomes invalid", async () => {
+  const agentDir = tempAgentDir();
+  writeFileSync(join(agentDir, SETTINGS_FILE), "{not json", "utf8");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const command = commands.get("signal-footer")!;
+  const warnings = () => context.notifications.filter((item) => item.level === "warning").length;
+
+  await startSession(handlers, context);
+  assert.equal(warnings(), 1);
+
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: true }), "utf8");
+  await command("status", context.ctx);
+  assert.equal(warnings(), 1);
+
+  writeFileSync(join(agentDir, SETTINGS_FILE), "{not json", "utf8");
+  await command("status", context.ctx);
+  assert.equal(warnings(), 2);
+});
+
 test("does not claim success or change the footer when settings cannot be written", async () => {
   const parent = tempAgentDir();
   const agentDir = join(parent, "agent-file");
