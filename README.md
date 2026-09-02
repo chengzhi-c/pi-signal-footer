@@ -49,6 +49,8 @@ Built and tested against Pi Coding Agent 0.84.4 and Node.js 22.19.0 (the minimum
 
 Settings live in `pi-signal-footer.json` under Pi's agent directory (`getAgentDir()`, usually `~/.pi/agent/`). A missing file uses these defaults. Invalid JSON or an unreadable file also uses defaults and emits one warning. A valid partial object is accepted, unknown keys are ignored, and a known key with the wrong type is replaced by its default while the warning names the invalid field (the allowed locales are `auto`, `zh`, and `en`).
 
+Host-provided identity values are rendered as single-line plain text. Status text from other extensions keeps its own terminal styling. Command names that collide with built-in object properties are treated as unknown and only produce the normal warning.
+
 ```json
 {
   "enabled": true,
