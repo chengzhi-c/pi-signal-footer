@@ -79,17 +79,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasOwn(source: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(source, key);
-}
-
 export function parseSettings(raw: unknown): SettingsParseResult {
   const settings: FooterSettings = { ...DEFAULT_SETTINGS };
   if (!isRecord(raw)) return { settings, invalidKeys: ["<root>"] };
 
   const invalidKeys: string[] = [];
   for (const key of BOOLEAN_KEYS) {
-    if (!hasOwn(raw, key)) continue;
+    if (!Object.hasOwn(raw, key)) continue;
     if (typeof raw[key] !== "boolean") {
       invalidKeys.push(key);
       continue;
@@ -97,7 +93,7 @@ export function parseSettings(raw: unknown): SettingsParseResult {
     settings[key] = raw[key];
   }
 
-  if (hasOwn(raw, "locale")) {
+  if (Object.hasOwn(raw, "locale")) {
     const locale = raw.locale;
     if (locale === "auto" || locale === "zh" || locale === "en") settings.locale = locale;
     else invalidKeys.push("locale");

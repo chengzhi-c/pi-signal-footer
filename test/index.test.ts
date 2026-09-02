@@ -633,6 +633,7 @@ test("hostVersionTooOld compares major.minor.patch without a semver library", ()
   assert.equal(hostVersionTooOld("0.84.4-beta.1"), true);
   assert.equal(hostVersionTooOld("0.84.4+build.1"), false);
   assert.equal(hostVersionTooOld("0.84"), true);
+  assert.equal(hostVersionTooOld("0.85"), false);
   assert.equal(hostVersionTooOld("not-a-version"), true);
 });
 

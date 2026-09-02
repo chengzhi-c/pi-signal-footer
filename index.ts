@@ -52,46 +52,14 @@ function parseToggle(value: string): boolean | undefined {
 const LEGEND_WIDGET_KEY = "pi-signal-footer-legend";
 export const MIN_HOST_VERSION = "0.84.4";
 
-type ParsedVersion = {
-  numbers: [number, number, number];
-  prerelease: string[] | undefined;
-};
-
-function parseVersion(version: string): ParsedVersion | undefined {
+function parseVersion(version: string): { numbers: [number, number, number]; prerelease: boolean } | undefined {
   const match = version.trim().match(
     /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/,
   );
   if (!match) return undefined;
-
   const numbers = [match[1], match[2] ?? "0", match[3] ?? "0"].map(Number);
   if (numbers.some((value) => !Number.isSafeInteger(value) || value < 0)) return undefined;
-
-  return {
-    numbers: numbers as [number, number, number],
-    prerelease: match[4]?.split("."),
-  };
-}
-
-function comparePrerelease(left: string[] | undefined, right: string[] | undefined): number {
-  if (!left && !right) return 0;
-  if (!left) return 1;
-  if (!right) return -1;
-
-  for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const leftPart = left[index];
-    const rightPart = right[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-    if (leftPart === rightPart) continue;
-
-    const leftNumber = /^\d+$/.test(leftPart) ? Number(leftPart) : undefined;
-    const rightNumber = /^\d+$/.test(rightPart) ? Number(rightPart) : undefined;
-    if (leftNumber !== undefined && rightNumber !== undefined) return leftNumber < rightNumber ? -1 : 1;
-    if (leftNumber !== undefined) return -1;
-    if (rightNumber !== undefined) return 1;
-    return leftPart < rightPart ? -1 : 1;
-  }
-  return 0;
+  return { numbers: numbers as [number, number, number], prerelease: match[4] !== undefined };
 }
 
 export function hostVersionTooOld(version: string, minimum = MIN_HOST_VERSION): boolean {
@@ -104,7 +72,7 @@ export function hostVersionTooOld(version: string, minimum = MIN_HOST_VERSION): 
       return actual.numbers[index] < required.numbers[index];
     }
   }
-  return comparePrerelease(actual.prerelease, required.prerelease) < 0;
+  return actual.prerelease && !required.prerelease;
 }
 
 function hideLegend(ctx: ExtensionContext): void {
