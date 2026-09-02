@@ -32,7 +32,7 @@
     "tui"
   ],
   "scripts": {
-    "test": "tsx --test test/format.test.ts test/index.test.ts test/settings.test.ts test/package.test.ts test/load.test.ts",
+    "test": "tsx --test test/format.test.ts test/layout.test.ts test/lifecycle.test.ts test/commands.test.ts test/settings.test.ts test/package.test.ts test/load.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run test && npm run typecheck",
     "pack:check": "npm pack --dry-run",
