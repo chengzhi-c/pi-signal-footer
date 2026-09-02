@@ -27,6 +27,30 @@ test("renders unknown context percentage without NaN", async () => {
   assert.doesNotMatch(output, /100\/1\.0k/);
 });
 
+test("sanitizes identity fields without removing third-party status colors", async () => {
+  const { handlers } = createApi();
+  const context = createContext(
+    { tokens: 10, contextWindow: 1000, percent: 1 },
+    { relay: "\u001b[31mRelay: ready\u001b[0m" },
+  );
+  context.ctx.model.provider = "provider\nname";
+  context.ctx.model.id = "model\u001b[31m\nname";
+  context.ctx.sessionManager.getCwd = () => "C:\\work\\project\nname";
+  context.ctx.sessionManager.getSessionName = () => "session\tname";
+  context.footerData.getGitBranch = () => "branch\u001b[31m\nname";
+  await startSession(handlers, context);
+
+  const lines = renderLines(context, 160);
+  const output = lines.join("\n");
+  assert.ok(lines.every((line) => !/[\r\n\t\u0000]/.test(line)));
+  assert.match(output, /provider name/);
+  assert.match(output, /model name/);
+  assert.match(output, /session name/);
+  assert.match(output, /branch name/);
+  assert.match(output, /\u001b\[31mRelay: ready\u001b\[0m/);
+  assert.doesNotMatch(output.replace("\u001b[31mRelay: ready\u001b[0m", ""), /\u001b/);
+});
+
 test("renders unknown token counts without losing a known percentage", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: null, contextWindow: 1000, percent: 37 });

@@ -233,15 +233,15 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           const error = loaded.error ?? "none";
           const invalid = loaded.invalidKeys.join(", ") || "none";
           const items = SHOW_KEYS
-            .map((key) => SHOW_TOKENS[key] + ": " + (current[key] ? "on" : "off"))
+            .map((key) => text.status.item(SHOW_TOKENS[key], text.status.value(current[key])))
             .join(" | ");
           ctx.ui.notify(
             join(agentDir(), SETTINGS_FILE)
-              + " | enabled: " + (current.enabled ? "on" : "off")
+              + " | " + text.status.enabled(text.status.value(current.enabled))
               + " | " + items
-              + " | locale: " + resolveLocale(current.locale)
-              + " | error: " + error
-              + " | invalid: " + invalid,
+              + " | " + text.status.locale(resolveLocale(current.locale))
+              + " | " + text.status.error(error)
+              + " | " + text.status.invalid(invalid),
             "info",
           );
           return;
@@ -263,7 +263,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           return;
         }
 
-        const chip = CHIP_COMMANDS[action];
+        const chip = Object.hasOwn(CHIP_COMMANDS, action) ? CHIP_COMMANDS[action] : undefined;
         if (chip) {
           const raw = parts[1]?.toLowerCase();
           const value = raw === undefined ? undefined : parseToggle(raw);

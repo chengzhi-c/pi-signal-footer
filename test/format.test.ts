@@ -16,6 +16,7 @@ import {
   parseMcpStatus,
   parseLspStatus,
   resolveLocale,
+  sanitizePlainText,
   sanitizeStatusText,
   splitProjectPath,
   stripAnsi,
@@ -266,6 +267,7 @@ test("splits project path with home abbreviation for the identity slot", () => {
   assert.deepEqual(splitProjectPath("myapp", ""), { parent: "", name: "myapp" });
   assert.deepEqual(splitProjectPath("", ""), { parent: "", name: "" });
   assert.deepEqual(splitProjectPath("C:\\Users\\devx\\app", "C:\\Users\\dev"), { parent: "C:/Users/devx/", name: "app" });
+  assert.deepEqual(splitProjectPath("/home/dev/app", "home/dev"), { parent: "/home/dev/", name: "app" });
   assert.deepEqual(splitProjectPath("c:\\users\\dev\\myapp", "C:\\Users\\Dev"), { parent: "~/", name: "myapp" });
   assert.deepEqual(splitProjectPath("/", ""), { parent: "", name: "/" });
   assert.deepEqual(splitProjectPath("C:\\", ""), { parent: "", name: "C:/" });
@@ -281,6 +283,11 @@ test("abbreviates home prefixes even when case folding changes their length", ()
   // 后缀长度差仍指向分隔符，要照常缩写为 ~。
   assert.deepEqual(splitProjectPath("C:\\Users\\Kagawİ\\app", "C:\\Users\\Kagawi\u0307"), { parent: "~/", name: "app" });
   assert.deepEqual(splitProjectPath("C:\\Users\\Kagawi\u0307\\app", "C:\\Users\\Kagawİ"), { parent: "~/", name: "app" });
+  assert.deepEqual(splitProjectPath("C:\\Users\\dev\\İapp", "C:\\Users\\dev"), { parent: "~/", name: "İapp" });
+});
+
+test("keeps identity text on one plain line", () => {
+  assert.equal(sanitizePlainText(" model\u001b[31m\nname\t\u0000 "), "model name");
 });
 
 test("legend explains every glyph the footer renders", () => {

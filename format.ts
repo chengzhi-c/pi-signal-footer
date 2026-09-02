@@ -35,6 +35,14 @@ const COPY = {
     itemUsage: (items: string) =>
       `用法: /signal-footer <${items}> [on|off]（省略 on|off 即切换）`,
     localeUsage: "用法: /signal-footer locale auto|zh|en",
+    status: {
+      value: (enabled: boolean) => (enabled ? "开" : "关"),
+      enabled: (value: string) => `启用: ${value}`,
+      item: (token: string, value: string) => `${token}: ${value}`,
+      locale: (value: UiLocale) => `语言: ${value}`,
+      error: (value: string) => `错误: ${value}`,
+      invalid: (value: string) => `无效: ${value}`,
+    },
   },
   en: {
     legend: [
@@ -61,6 +69,14 @@ const COPY = {
     itemUsage: (items: string) =>
       `Usage: /signal-footer <${items}> [on|off] (omit on|off to toggle)`,
     localeUsage: "Usage: /signal-footer locale auto|zh|en",
+    status: {
+      value: (enabled: boolean) => (enabled ? "on" : "off"),
+      enabled: (value: string) => `enabled: ${value}`,
+      item: (token: string, value: string) => `${token}: ${value}`,
+      locale: (value: UiLocale) => `locale: ${value}`,
+      error: (value: string) => `error: ${value}`,
+      invalid: (value: string) => `invalid: ${value}`,
+    },
   },
 } as const;
 
@@ -208,15 +224,28 @@ export function splitProjectPath(cwd = "", home = ""): ProjectPathParts {
   if (!c) return { parent: "", name: "" };
 
   let display = c;
-  const windowsPath = /^[A-Za-z]:[\\/]/.test(c) || /^[A-Za-z]:[\\/]/.test(h);
-  const comparableCwd = windowsPath ? c.toLowerCase() : c;
-  const comparableHome = windowsPath ? h.toLowerCase() : h;
-  if (h && comparableCwd === comparableHome) return { parent: "", name: "~" };
-  if (h && comparableCwd.startsWith(comparableHome)) {
-    // 大小写折叠可能改变串长（İ 折叠为 i+U+0307），按折叠后的后缀长度从原串
-    // 尾部取，不依赖「折叠不改长」；rest 以分隔符开头才缩写。
-    const rest = c.slice(c.length - (comparableCwd.length - comparableHome.length));
-    if (rest.startsWith("\\") || rest.startsWith("/")) display = `~${rest}`;
+  const windowsPath = /^[A-Za-z]:[\\/]/.test(c)
+    || /^[A-Za-z]:[\\/]/.test(h)
+    || c.startsWith("\\\\")
+    || c.startsWith("//")
+    || h.startsWith("\\\\")
+    || h.startsWith("//");
+  const cwdParts = c.split(/[\\/]+/).filter(Boolean);
+  const homeParts = h.split(/[\\/]+/).filter(Boolean);
+  const samePart = (left: string, right: string): boolean =>
+    windowsPath ? left.toLowerCase() === right.toLowerCase() : left === right;
+  const rootKind = (path: string): "drive" | "unc" | "absolute" | "relative" => {
+    if (/^[A-Za-z]:[\\/]/.test(path) || /^[A-Za-z]:$/.test(path)) return "drive";
+    if (path.startsWith("\\\\") || path.startsWith("//")) return "unc";
+    return /^[\\/]/.test(path) ? "absolute" : "relative";
+  };
+  const homeMatches = h !== ""
+    && rootKind(c) === rootKind(h)
+    && homeParts.length <= cwdParts.length
+    && homeParts.every((part, index) => samePart(part, cwdParts[index] ?? ""));
+  if (homeMatches) {
+    const suffix = cwdParts.slice(homeParts.length);
+    display = suffix.length === 0 ? "~" : `~/${suffix.join("/")}`;
   }
 
   const parts = display.split(/[\\/]/).filter(Boolean);
@@ -261,6 +290,15 @@ export function contextBarParts(percent: unknown, width: number): ContextBarPart
 export function sanitizeStatusText(text: unknown): string {
   if (typeof text !== "string") return "";
   return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
+}
+
+/** 身份字段只允许稳定的单行纯文本；第三方状态不走这条路径以保留其着色。 */
+export function sanitizePlainText(text: unknown): string {
+  if (typeof text !== "string") return "";
+  return stripTerminalSequences(text)
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** 外部插件写入的状态自带着色和控制序列，解析前先剥掉。 */

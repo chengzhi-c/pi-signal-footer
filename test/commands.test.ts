@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -50,6 +50,21 @@ test("item commands toggle, flip, and reject bad values", async () => {
   await command("path banana", context.ctx);
   assert.equal(context.notifications.at(-1)?.level, "warning");
   assert.match(renderLines(context, 160).join("\n"), /C:\/work\/demo/, "an invalid value must not change state");
+});
+
+test("reserved object-property commands warn without changing settings", async () => {
+  const agentDir = tempAgentDir();
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  const command = commands.get("signal-footer")!;
+
+  for (const action of ["constructor", "__proto__", "toString"]) {
+    await command(action, context.ctx);
+    assert.equal(context.notifications.at(-1)?.level, "warning", `${action} must be rejected`);
+  }
+
+  assert.equal(existsSync(join(agentDir, SETTINGS_FILE)), false, "rejected commands must not persist settings");
 });
 
 test("help prints the command surface instead of the legend", async () => {
@@ -232,8 +247,21 @@ test("status reports file-level settings load errors separately from invalid fie
   await startSession(handlers, context);
   await commands.get("signal-footer")!("status", context.ctx);
   const status = context.notifications.at(-1)?.message ?? "";
-  assert.match(status, /error: invalid-json/);
-  assert.match(status, /invalid: none/);
+  assert.match(status, /invalid-json/);
+  assert.match(status, /none/);
+});
+
+test("status uses the selected locale for its fixed labels", async () => {
+  const agentDir = tempAgentDir();
+  pinLocale(agentDir, "zh");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  await commands.get("signal-footer")!("status", context.ctx);
+  const status = context.notifications.at(-1)?.message ?? "";
+  assert.match(status, /启用|语言|错误|无效/);
+  assert.doesNotMatch(status, /enabled:|locale:|error:|invalid:/);
 });
 
 test("reports invalid setting fields and exposes diagnostics in status", async () => {

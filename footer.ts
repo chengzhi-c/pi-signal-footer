@@ -20,6 +20,7 @@ import {
   parseLspStatus,
   parseMcpStatus,
   resolveLocale,
+  sanitizePlainText,
   sanitizeStatusText,
   splitProjectPath,
   contextBarParts,
@@ -192,8 +193,8 @@ function readContextField(ctx: ExtensionContext, theme: Theme): ContextField {
 }
 
 function modelCore(ctx: ExtensionContext, theme: Theme): string {
-  const provider = ctx.model?.provider?.trim() ?? "";
-  const model = ctx.model?.id ?? "no-model";
+  const provider = sanitizePlainText(ctx.model?.provider);
+  const model = sanitizePlainText(ctx.model?.id) || "no-model";
   const modelText = `${theme.fg("accent", getModelIcon(model, provider))} ${theme.fg("text", model)}`;
   return provider ? `${theme.fg("accent", provider)} ${theme.fg("muted", "›")} ${modelText}` : modelText;
 }
@@ -212,7 +213,7 @@ function modelField(
     if (level !== "off") parts.push(`${theme.fg("muted", "✦")} ${theme.getThinkingBorderColor(level)(level)}`);
   }
 
-  const branch = footerData.getGitBranch();
+  const branch = sanitizePlainText(footerData.getGitBranch());
   if (settings.showBranch && branch) parts.push(theme.fg("muted", `⎇ ${branch}`));
 
   return parts.join(pipe);
@@ -338,8 +339,12 @@ function buildIdentityLevels(
   settings: FooterSettings,
 ): { identityLevels: string[]; model: string; projectSection: string } {
   const pipe = theme.fg("muted", " │ ");
-  const { parent, name } = splitProjectPath(ctx.sessionManager.getCwd(), resolveHome());
-  const sessionName = settings.showSessionName ? ctx.sessionManager.getSessionName() : undefined;
+  const project = splitProjectPath(ctx.sessionManager.getCwd(), resolveHome());
+  const parent = sanitizePlainText(project.parent);
+  const name = sanitizePlainText(project.name);
+  const sessionName = settings.showSessionName
+    ? sanitizePlainText(ctx.sessionManager.getSessionName())
+    : "";
   const projectSection = [
     settings.showProject && name
       ? `${parent ? theme.fg("muted", parent) : ""}${theme.bold(theme.fg("text", name))}`
