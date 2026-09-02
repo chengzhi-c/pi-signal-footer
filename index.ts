@@ -18,17 +18,8 @@ import {
   type FooterSettings,
   type ShowKey,
 } from "./settings.ts";
-export {
-  DEFAULT_SETTINGS,
-  SETTINGS_FILE,
-  loadSettings,
-  parseSettings,
-  saveSettings,
-} from "./settings.ts";
-export type { FooterLocale, FooterSettings, SettingsLoadError, SettingsLoadResult, SettingsParseResult } from "./settings.ts";
 
 import { handleStream, installFooter, resetStreamState } from "./footer.ts";
-export { handleStream, resolveHome } from "./footer.ts";
 
 import {
   copyFor,
@@ -37,15 +28,13 @@ import {
   resolveLocale,
 } from "./format.ts";
 
-// 短名词是对外命令面；完整设置键名保留为隐式别名，旧习惯不至于断。
-const CHIP_COMMANDS: Readonly<Record<string, ShowKey>> = Object.freeze({
-  ...Object.fromEntries(SHOW_KEYS.map((key) => [SHOW_TOKENS[key], key])),
-  ...Object.fromEntries(SHOW_KEYS.map((key) => [key.toLowerCase(), key])),
-});
+const CHIP_COMMANDS: Readonly<Record<string, ShowKey>> = Object.freeze(
+  Object.fromEntries(SHOW_KEYS.map((key) => [SHOW_TOKENS[key], key])),
+);
 
 function parseToggle(value: string): boolean | undefined {
-  if (value === "on" || value === "true" || value === "1") return true;
-  if (value === "off" || value === "false" || value === "0") return false;
+  if (value === "on") return true;
+  if (value === "off") return false;
   return undefined;
 }
 

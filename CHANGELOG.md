@@ -2,6 +2,10 @@
 
 仅记录用户可感知的主要变化。 / Major user-visible changes only.
 
+## Unreleased
+
+- **命令 / Commands**：不再接受 `showproject` 等完整设置键名作为命令别名，请使用 `path|session|time|turns|speed|branch|cache`。 / Setting-key command aliases are no longer accepted; use the short item tokens.
+
 ## 0.4.0
 
 - **命令 / Commands**：单项开关改为 `/signal-footer path|session|time|turns|speed|branch|cache [on|off]`（省略即切换），替代 `set <show*>`；`help` 显示命令列表，`status` 列出各项开关。 / Per-item commands replace `set <show*>`; `help` lists the commands and `status` shows per-item states.

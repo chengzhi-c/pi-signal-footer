@@ -3,12 +3,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import {
-  handleStream,
-  hostVersionTooOld,
-  resolveHome,
-  SETTINGS_FILE,
-} from "../index.ts";
+import { handleStream, resolveHome } from "../footer.ts";
+import { hostVersionTooOld } from "../index.ts";
+import { SETTINGS_FILE } from "../settings.ts";
 
 import {
   createApi,
@@ -101,6 +98,9 @@ test("unsupported hosts keep the native footer and avoid custom footer APIs", as
   await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, context.ctx);
   await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, context.ctx);
   await commands.get("signal-footer")?.("legend", context.ctx);
+  await commands.get("signal-footer")!("on", context.ctx);
+  await commands.get("signal-footer")!("locale en", context.ctx);
+  await commands.get("signal-footer")!("branch off", context.ctx);
   assert.equal(context.notifications.filter((item) => item.level === "warning").length, 1);
   await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, context.ctx);
   assert.equal(context.footerCalls.length, 0);
@@ -130,18 +130,6 @@ test("minimum supported host installs and removes the custom footer", async () =
 
   await handlers.get("session_shutdown")?.({ type: "session_shutdown" }, context.ctx);
   assert.equal(context.footerCalls.at(-1), undefined);
-});
-
-test("unsupported hosts do not install a footer from control commands", async () => {
-  const { handlers, commands } = createApi(tempAgentDir(), "0.84.3");
-  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-
-  await startSession(handlers, context);
-  await commands.get("signal-footer")!("on", context.ctx);
-  await commands.get("signal-footer")!("locale en", context.ctx);
-  await commands.get("signal-footer")!("branch off", context.ctx);
-
-  assert.equal(context.footerCalls.length, 0);
 });
 
 test("resolveHome survives homedir throwing without abbreviating to ~", () => {

@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createExtension, SETTINGS_FILE } from "../index.ts";
+import { createExtension } from "../index.ts";
+import { SETTINGS_FILE } from "../settings.ts";
 
 export type Handler = (...args: unknown[]) => unknown;
 export type ThemeStub = ReturnType<typeof createTheme>;

@@ -52,32 +52,24 @@ type SessionEntries = ReturnType<ExtensionContext["sessionManager"]["getEntries"
 // 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
 // （剔除 TTFT/排队），message_end 用精确 usage.output 收口。
 type StreamState = { timing: { tRequest: number; tFirst: number | null } | null; lastRate: string };
-type StreamSessionKey = object;
 
-// 无会话参数的导出辅助函数仍使用独立兼容键；扩展事件路径始终传入 sessionManager。
-const legacyStreamKey = {};
 const streamStates = new WeakMap<object, StreamState>();
 
-function streamKey(session?: StreamSessionKey): object {
-  return session ?? legacyStreamKey;
-}
-
-function streamStateFor(session?: StreamSessionKey): StreamState {
-  const key = streamKey(session);
-  let state = streamStates.get(key);
+function streamStateFor(session: object): StreamState {
+  let state = streamStates.get(session);
   if (!state) {
     state = { timing: null, lastRate: "" };
-    streamStates.set(key, state);
+    streamStates.set(session, state);
   }
   return state;
 }
 
-export function resetStreamState(session?: StreamSessionKey): void {
-  streamStates.delete(streamKey(session));
+export function resetStreamState(session: object): void {
+  streamStates.delete(session);
 }
 
-function streamRate(session?: StreamSessionKey): string {
-  return streamStates.get(streamKey(session))?.lastRate ?? "";
+function streamRate(session: object): string {
+  return streamStates.get(session)?.lastRate ?? "";
 }
 
 /** homedir() 解析失败不能击穿渲染循环；拿不到主目录时保留完整路径。 */
@@ -87,10 +79,6 @@ export function resolveHome(homeFn: () => string = homedir): string {
   } catch {
     return process.env.HOME || process.env.USERPROFILE || "";
   }
-}
-
-function createUsageTotals(): UsageTotals {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 }
 
 // 会话条目可能来自手工编辑或旧版本写入的 JSONL，数值字段不保证是有限非负数。
@@ -120,8 +108,9 @@ function entryUsage(entry: SessionEntry): UsageLike | undefined {
 }
 
 // 每个可归属条目都是一次请求的增量；摘要和压缩也计入会话总量。
+// ponytail: 每次 render 全量扫描 entries；10k 级会话若 p95 不可接受，按 entries 引用缓存 totals。
 function computeSessionDerived(entries: SessionEntries): { totals: UsageTotals; session: SessionStats } {
-  const totals = createUsageTotals();
+  const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const session: SessionStats = { firstTs: Number.NaN, lastTs: Number.NaN, turns: 0 };
 
   for (const entry of entries) {
@@ -427,7 +416,7 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings): 
 type StreamKind = "start" | "update" | "end";
 type StreamMessage = { role: string; usage?: { output?: number } };
 
-export function handleStream(kind: StreamKind, message: StreamMessage, now: number, session?: StreamSessionKey): void {
+export function handleStream(kind: StreamKind, message: StreamMessage, now: number, session: object): void {
   if (message.role !== "assistant") return;
   if (kind === "start") {
     const state = streamStateFor(session);
@@ -435,7 +424,7 @@ export function handleStream(kind: StreamKind, message: StreamMessage, now: numb
     state.lastRate = "";
     return;
   }
-  const state = streamStates.get(streamKey(session));
+  const state = streamStates.get(session);
   if (!state) return;
   if (kind === "update") {
     if (state.timing && state.timing.tFirst === null) state.timing.tFirst = now;

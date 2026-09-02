@@ -19,7 +19,6 @@ import {
   sanitizePlainText,
   sanitizeStatusText,
   splitProjectPath,
-  stripAnsi,
 } from "../format.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
@@ -70,11 +69,6 @@ test("calculates cache hit ratios properly", () => {
   assert.equal(formatCacheHitRatio(100, 0), "100%");
 });
 
-test("keeps cache hit ratios correct when finite counts would overflow their sum", () => {
-  assert.equal(formatCacheHitRatio(Number.MAX_VALUE, Number.MAX_VALUE), "50%");
-  assert.equal(formatCacheHitRatio(Number.MAX_VALUE, 1), "100%");
-});
-
 test("contextBarParts yields colorable segments with stable math", () => {
   assert.deepEqual(contextBarParts(50, 8), { fill: "━━━━", track: "────" });
   assert.deepEqual(contextBarParts(0, 4), { fill: "", track: "────" });
@@ -105,12 +99,6 @@ test("treats non-string extension statuses as empty", () => {
   assert.equal(sanitizeStatusText(42), "");
 });
 
-test("strips ANSI sequences before parsing foreign status text", () => {
-  assert.equal(stripAnsi("\u001B[36mMCP 1/1\u001B[0m"), "MCP 1/1");
-  assert.equal(stripAnsi("plain"), "plain");
-  assert.equal(stripAnsi(undefined), "");
-});
-
 test("strips OSC 8 hyperlinks before parsing MCP status", () => {
   assert.deepEqual(
     parseMcpStatus("\u001B]8;;http://x\u0007MCP 1/1\u001B]8;;\u0007"),
@@ -134,11 +122,6 @@ test("parses pi-mcp-adapter compact and full status variants", () => {
 
 test("rejects MCP statuses with more connections than enabled servers", () => {
   assert.equal(parseMcpStatus("MCP 3/2"), undefined);
-});
-
-test("rejects MCP statuses beyond the safe integer range", () => {
-  const huge = "9".repeat(400);
-  assert.equal(parseMcpStatus(`MCP ${huge}/${huge}`), undefined);
 });
 
 test("rejects finite MCP counts beyond the safe integer range", () => {

@@ -21,16 +21,16 @@ test("declares Pi host modules as peers without production dependencies", () => 
   assert.deepEqual(manifest.dependencies ?? {}, {});
 });
 
-test("ships the Chinese README in the published package", () => {
-  assert.ok(manifest.files?.includes("README.zh-CN.md"));
-});
-
-test("ships the settings module imported by the extension entrypoint", () => {
-  assert.ok(manifest.files?.includes("settings.ts"));
-});
-
-test("ships the footer module imported by the extension entrypoint", () => {
-  assert.ok(manifest.files?.includes("footer.ts"));
+test("ships the runtime modules and both READMEs", () => {
+  assert.deepEqual(manifest.files, [
+    "LICENSE",
+    "README.md",
+    "README.zh-CN.md",
+    "format.ts",
+    "index.ts",
+    "settings.ts",
+    "footer.ts",
+  ]);
 });
 
 test("keeps the runtime host floor, peer floor, and READMEs aligned", () => {

@@ -3,7 +3,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { handleStream, loadSettings, SETTINGS_FILE } from "../index.ts";
+import { handleStream } from "../footer.ts";
+import { loadSettings, SETTINGS_FILE } from "../settings.ts";
 
 import {
   createApi,
@@ -50,6 +51,21 @@ test("item commands toggle, flip, and reject bad values", async () => {
   await command("path banana", context.ctx);
   assert.equal(context.notifications.at(-1)?.level, "warning");
   assert.match(renderLines(context, 160).join("\n"), /C:\/work\/demo/, "an invalid value must not change state");
+
+  await command("path true", context.ctx);
+  assert.equal(context.notifications.at(-1)?.level, "warning");
+  assert.match(renderLines(context, 160).join("\n"), /C:\/work\/demo/, "true/false/1/0 are not toggle values");
+});
+
+test("rejects undocumented setting-key command aliases", async () => {
+  const { handlers, commands, agentDir } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+
+  await commands.get("signal-footer")!("showproject off", context.ctx);
+  assert.equal(context.notifications.at(-1)?.level, "warning");
+  assert.match(renderLines(context, 160).join("\n"), /C:\/work\/demo/);
+  assert.equal(existsSync(join(agentDir, SETTINGS_FILE)), false);
 });
 
 test("reserved object-property commands warn without changing settings", async () => {
@@ -103,24 +119,24 @@ test("showSessionName works independently of showProject", async () => {
   context.ctx.sessionManager.getSessionName = () => "fix-context-bar";
   await startSession(handlers, context);
 
-  await setField(commands, context.ctx, "showProject", "off");
-  await setField(commands, context.ctx, "showSessionName", "on");
+  await setField(commands, context.ctx, "path", "off");
+  await setField(commands, context.ctx, "session", "on");
   {
     const output = renderLines(context, 160).join("\n");
     assert.ok(output.includes("fix-context-bar"), "session name must survive with the project path disabled");
     assert.ok(!output.includes("C:/work/demo"), "project path itself stays hidden");
   }
 
-  await setField(commands, context.ctx, "showProject", "on");
-  await setField(commands, context.ctx, "showSessionName", "off");
+  await setField(commands, context.ctx, "path", "on");
+  await setField(commands, context.ctx, "session", "off");
   {
     const output = renderLines(context, 160).join("\n");
     assert.ok(output.includes("demo"));
     assert.ok(!output.includes("fix-context-bar"));
   }
 
-  await setField(commands, context.ctx, "showProject", "off");
-  await setField(commands, context.ctx, "showSessionName", "off");
+  await setField(commands, context.ctx, "path", "off");
+  await setField(commands, context.ctx, "session", "off");
   {
     const output = renderLines(context, 160).join("\n");
     assert.ok(!output.includes("fix-context-bar"));
@@ -129,17 +145,18 @@ test("showSessionName works independently of showProject", async () => {
 });
 
 test("showBranch and showTurns toggles take effect", async () => {
-  const { handlers, commands } = createApi();
+  const { handlers, commands, agentDir } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.footerData.getGitBranch = () => "main";
   context.entries.push({ type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user" } });
   await startSession(handlers, context);
 
-  await setField(commands, context.ctx, "showBranch", "on");
+  await setField(commands, context.ctx, "branch", "on");
   assert.match(renderLines(context, 160).join("\n"), /⎇ main/);
-  await setField(commands, context.ctx, "showBranch", "off");
+  await setField(commands, context.ctx, "branch", "off");
   assert.doesNotMatch(renderLines(context, 160).join("\n"), /⎇ main/);
-  await setField(commands, context.ctx, "showTurns", "off");
+  assert.equal(loadSettings(agentDir).settings.showBranch, false);
+  await setField(commands, context.ctx, "turns", "off");
   assert.doesNotMatch(renderLines(context, 160).join("\n"), /1轮/);
 });
 
@@ -166,36 +183,26 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
   assert.match(all, /↻ 900 \(90%\)/);
   assert.match(all, /50 tok\/s/);
 
-  await setField(commands, context.ctx, "showDuration", "off");
+  await setField(commands, context.ctx, "time", "off");
   {
     const out = renderLines(context, 160).join("\n");
     assert.doesNotMatch(out, /◷ 1m/);
     assert.match(out, /50 tok\/s/, "turning off the span must not drop the rate");
   }
-  await setField(commands, context.ctx, "showDuration", "on");
-  await setField(commands, context.ctx, "showSpeed", "off");
+  await setField(commands, context.ctx, "time", "on");
+  await setField(commands, context.ctx, "speed", "off");
   {
     const out = renderLines(context, 160).join("\n");
     assert.doesNotMatch(out, /tok\/s/);
     assert.match(out, /◷ 1m/, "turning off the rate must not drop the span");
   }
-  await setField(commands, context.ctx, "showSpeed", "on");
-  await setField(commands, context.ctx, "showCacheRatio", "off");
+  await setField(commands, context.ctx, "speed", "on");
+  await setField(commands, context.ctx, "cache", "off");
   {
     const out = renderLines(context, 160).join("\n");
     assert.doesNotMatch(out, /\(90%\)/);
     assert.match(out, /↻ 900/, "the read count itself must stay visible");
   }
-});
-
-test("showBranch false writes the settings file and hides the branch", async () => {
-  const { handlers, commands, agentDir } = createApi();
-  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-  context.footerData.getGitBranch = () => "main";
-  await startSession(handlers, context);
-  await setField(commands, context.ctx, "showBranch", "off");
-  assert.equal(loadSettings(agentDir).settings.showBranch, false);
-  assert.doesNotMatch(renderLines(context, 160).join("\n"), /⎇ main/);
 });
 
 test("configuration changes clear an active footer when the loaded settings disable it", async () => {

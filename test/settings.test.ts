@@ -31,9 +31,7 @@ function tempDir(): string {
 test("interpolates every show-item token into help copy", () => {
   const tokens = SHOW_ITEM_TOKENS.split("|");
   assert.equal(new Set(tokens).size, tokens.length);
-  for (const key of SHOW_KEYS) {
-    assert.notEqual(SHOW_TOKENS[key], key.toLowerCase());
-  }
+  assert.deepEqual(tokens, SHOW_KEYS.map((key) => SHOW_TOKENS[key]));
   for (const locale of ["zh", "en"] as const) {
     const text = copyFor(locale);
     const usage = text.usage(SHOW_ITEM_TOKENS);

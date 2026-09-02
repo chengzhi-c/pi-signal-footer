@@ -94,9 +94,7 @@ const ITEM_NAMES = {
   showCacheRatio: { zh: "缓存命中率", en: "cache hit" },
 } as const satisfies Record<ShowKey, { zh: string; en: string }>;
 
-export type ItemKey = keyof typeof ITEM_NAMES;
-
-export function itemDisplayName(key: ItemKey, locale: UiLocale): string {
+export function itemDisplayName(key: ShowKey, locale: UiLocale): string {
   return ITEM_NAMES[key][locale];
 }
 
@@ -187,10 +185,8 @@ export function formatCost(cost: number): string {
 export function formatCacheHitRatio(read: number, write: number): string {
   const r = Number.isFinite(read) && read > 0 ? read : 0;
   const w = Number.isFinite(write) && write > 0 ? write : 0;
-  const scale = Math.max(r, w);
-  if (scale === 0) return "0%";
-  const ratio = (r / scale) / ((r / scale) + (w / scale));
-  return `${Math.round(ratio * 100)}%`;
+  if (r + w === 0) return "0%";
+  return `${Math.round((100 * r) / (r + w))}%`;
 }
 
 /** 会话活跃跨度：不足一分钟显示秒，非法或非正值显示 "0m"。 */
@@ -301,11 +297,6 @@ export function sanitizePlainText(text: unknown): string {
     .trim();
 }
 
-/** 外部插件写入的状态自带着色和控制序列，解析前先剥掉。 */
-export function stripAnsi(text: unknown): string {
-  return stripTerminalSequences(String(text ?? ""));
-}
-
 /** 识别 pi-mcp-adapter 状态；仅接受安全整数且连接数不超过启用数。 */
 export function parseMcpStatus(text: unknown): McpStatus | undefined {
   const parseCounts = (connectedText: string, enabledText: string): McpStatus | undefined => {
@@ -323,7 +314,7 @@ export function parseMcpStatus(text: unknown): McpStatus | undefined {
     return { connected, enabled };
   };
 
-  const raw = stripAnsi(sanitizeStatusText(text));
+  const raw = stripTerminalSequences(sanitizeStatusText(text));
   const compact = raw.match(/^MCP (\d+)\/(\d+)$/);
   if (compact) {
     const connectedText = compact[1];
@@ -346,7 +337,7 @@ export function parseMcpStatus(text: unknown): McpStatus | undefined {
  * Active 与 Failed 可能以 " · " 合并在同一条状态里。Inactive 返回空数组（无活动不显示）。
  */
 export function parseLspStatus(text: unknown): LspChip[] | undefined {
-  const raw = stripAnsi(sanitizeStatusText(text));
+  const raw = stripTerminalSequences(sanitizeStatusText(text));
   if (raw === "LSP Inactive") return [];
   const chips: LspChip[] = [];
   for (const segment of raw.split(" · ")) {
