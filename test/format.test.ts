@@ -106,9 +106,8 @@ test("strips OSC 8 hyperlinks before parsing MCP status", () => {
   );
 });
 
-// Text contract with pi-mcp-adapter. These strings come from upstream status
-// text, which this package does not depend on and therefore cannot pin to a
-// version. See "Recognized upstream status text" in the README.
+// Text contract with pi-mcp-adapter status strings; this package does not
+// depend on that extension and cannot pin the wording to a version.
 test("parses pi-mcp-adapter compact and full status variants", () => {
   assert.deepEqual(parseMcpStatus("MCP 1/1"), { connected: 1, enabled: 1 });
   assert.deepEqual(parseMcpStatus("MCP 0/2"), { connected: 0, enabled: 2 });

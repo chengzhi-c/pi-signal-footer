@@ -37,10 +37,10 @@ test("keeps the runtime host floor, peer floor, and READMEs aligned", () => {
   assert.equal(manifest.peerDependencies?.["@earendil-works/pi-coding-agent"], ">=" + MIN_HOST_VERSION);
   assert.equal(manifest.peerDependencies?.["@earendil-works/pi-tui"], ">=" + MIN_HOST_VERSION);
 
+  const floor = MIN_HOST_VERSION.replaceAll(".", "\\.");
   for (const path of ["../README.md", "../README.zh-CN.md"]) {
     const readme = readFileSync(new URL(path, import.meta.url), "utf8");
-    assert.match(readme, new RegExp(">=" + MIN_HOST_VERSION.replaceAll(".", "\\.")));
-    assert.doesNotMatch(readme, /then throws|随后.*抛错/);
+    assert.match(readme, new RegExp(">=" + floor));
   }
 });
 

@@ -376,8 +376,7 @@ test("degrades the identity block instead of truncating it when the branch is lo
 });
 
 test("truncates the model name only at or below the measured width", async () => {
-  // README 承诺模型名约 40 列以下才被截短。钉住实测边界（≤40 截断、≥41 完整），
-  // 任一侧漂移时：先重跑宽度扫描，再同步更新本钉与 README。
+  // 钉住实测边界：≤40 截断、≥41 完整。漂移时先重跑宽度扫描再更新本钉。
   const { handlers } = createApi();
   const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
   context.ctx.model = { provider: "opencode-go", id: "deepseek-v4-flash-0731", contextWindow: 200_000, reasoning: true };

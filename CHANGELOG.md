@@ -2,13 +2,9 @@
 
 仅记录用户可感知的主要变化。 / Major user-visible changes only.
 
-## Unreleased
-
-- **命令 / Commands**：不再接受 `showproject` 等完整设置键名作为命令别名，请使用 `path|session|time|turns|speed|branch|cache`。 / Setting-key command aliases are no longer accepted; use the short item tokens.
-
 ## 0.4.0
 
-- **命令 / Commands**：单项开关改为 `/signal-footer path|session|time|turns|speed|branch|cache [on|off]`（省略即切换），替代 `set <show*>`；`help` 显示命令列表，`status` 列出各项开关。 / Per-item commands replace `set <show*>`; `help` lists the commands and `status` shows per-item states.
+- **命令 / Commands**：单项开关改为 `/signal-footer path|session|time|turns|speed|branch|cache [on|off]`（省略即切换），替代 `set <show*>`；不再接受 `showproject` 等设置键名别名。`help` 显示命令列表，`status` 列出各项开关。 / Per-item commands replace `set <show*>`; setting-key aliases are no longer accepted. `help` lists the commands and `status` shows per-item states.
 - **路径 / Paths**：修复家目录缩写在大小写折叠改变前缀长度时（如 İ）失效的边界，混合组合形式也能正确缩写为 `~`。 / Fixed home abbreviation when case folding changes the prefix length (e.g. İ).
 - **提示 / Copy**：`off`/`on` 的提示与文档写明切回/替代原生状态栏、选择持久化且重复执行无变化。 / `off`/`on` messages and docs now state that `off` hands the footer back to the native one, the choice persists, and repeat runs change nothing.
 
