@@ -109,9 +109,28 @@ function entryUsage(entry: SessionEntry): UsageLike | undefined {
   return undefined;
 }
 
+/** 首/末条 usage 数值快照：会话 append-only，首末未变即视为数据未变。 */
+function usageFingerprint(entry: SessionEntry | undefined): string {
+  if (!entry) return "";
+  const usage = entryUsage(entry);
+  if (!usage) return "";
+  return `${usage.input}|${usage.output}|${usage.cacheRead}|${usage.cacheWrite}|${usage.cost?.total}`;
+}
+
+type DerivedResult = { totals: UsageTotals; session: SessionStats; lastCache: CacheSample | undefined };
+
+type DerivedMemo = {
+  length: number;
+  first: SessionEntry | undefined;
+  last: SessionEntry | undefined;
+  firstFp: string;
+  lastFp: string;
+  derived: DerivedResult;
+};
+
 // 每个可归属条目都是一次请求的增量；摘要和压缩的 usage 是生成摘要那次调用的增量
 // （SDK 注释确认），同样计入会话总量。
-function computeSessionDerived(entries: SessionEntries): { totals: UsageTotals; session: SessionStats; lastCache: CacheSample | undefined } {
+function computeSessionDerived(entries: SessionEntries): DerivedResult {
   const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const session: SessionStats = { firstTs: Number.NaN, lastTs: Number.NaN, turns: 0 };
   let lastCache: CacheSample | undefined;
@@ -419,13 +438,32 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings): 
   ctx.ui.setFooter((tui, theme, footerData) => {
     const locale = resolveLocale(settings.locale);
     const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+    // getEntries() 每次返回新数组（同条目引用），纯重绘也触发全量扫描；
+    // 会话 append-only，首末引用+数值未变即复用，数据变化时全量重算兜底。
+    let memo: DerivedMemo | undefined;
+
+    const memoizedDerived = (entries: SessionEntries): DerivedResult => {
+      const first = entries[0];
+      const last = entries[entries.length - 1];
+      const firstFp = usageFingerprint(first);
+      const lastFp = usageFingerprint(last);
+      if (
+        memo && memo.length === entries.length && memo.first === first && memo.last === last
+        && memo.firstFp === firstFp && memo.lastFp === lastFp
+      ) {
+        return memo.derived;
+      }
+      const derived = computeSessionDerived(entries);
+      memo = { length: entries.length, first, last, firstFp, lastFp, derived };
+      return derived;
+    };
 
     return {
       dispose: unsubscribe,
       invalidate() {},
       render(width: number): string[] {
-        const { totals, session, lastCache } = computeSessionDerived(ctx.sessionManager.getEntries());
-        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), { totals, session, lastCache }, settings, locale);
+        const derived = memoizedDerived(ctx.sessionManager.getEntries());
+        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale);
       },
     };
   });

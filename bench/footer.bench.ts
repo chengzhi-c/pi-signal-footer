@@ -66,6 +66,7 @@ function percentile(samples: number[], fraction: number): number {
 
 const ITERATIONS = 30;
 const WIDTH = 140;
+let gateFailed = false;
 
 for (const count of [100, 1_000, 10_000]) {
   const { component } = makeFooter(count);
@@ -84,12 +85,21 @@ for (const count of [100, 1_000, 10_000]) {
   }
 
   const after = process.memoryUsage().heapUsed;
+  const stableP50 = percentile(samples, 0.5);
   console.log(
     count + " entries: cold " + coldMs.toFixed(3)
-      + " ms, stable p50 " + percentile(samples, 0.5).toFixed(3)
+      + " ms, stable p50 " + stableP50.toFixed(3)
       + " ms, p95 " + percentile(samples, 0.95).toFixed(3)
       + " ms, heap delta " + ((after - before) / 1024).toFixed(1)
       + " KiB, max width " + maxWidth,
   );
+  // 无数据变化的二次渲染应命中 memo（远快于全量扫描）；阈值取冷启动一半，
+  // 数量级差距下误报空间充足，memo 被删时必红。
+  if (count === 10_000 && !(stableP50 < coldMs * 0.5)) {
+    console.error(`memo gate failed: stable p50 ${stableP50.toFixed(3)} ms not < 50% of cold ${coldMs.toFixed(3)} ms`);
+    gateFailed = true;
+  }
   component.dispose?.();
 }
+
+if (gateFailed) process.exit(1);
