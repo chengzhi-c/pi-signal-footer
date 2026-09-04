@@ -2,6 +2,11 @@
 
 仅记录用户可感知的主要变化。 / Major user-visible changes only.
 
+## 0.4.2
+
+- **指标 / Metrics**：缓存括号改为单次请求复用率（读÷总输入），总量仍是会话累计；预热轮显示 0% 而不是留空。 / The cache percentage is now the last request's reuse rate (read÷total input); totals stay lifetime. Pre-warm rounds show 0% instead of blank.
+- **性能 / Performance**：数据未变时二次渲染复用已算结果，长会话更流畅。 / Re-renders reuse computed totals when entries are unchanged.
+
 ## 0.4.1
 
 - **配置 / Settings**：配置文件从损坏恢复后再改坏会再次告警。 / Warn again if a repaired settings file becomes invalid.
