@@ -300,7 +300,8 @@ export function sanitizePlainText(text: unknown): string {
 
 /** 识别 pi-mcp-adapter 状态；仅接受安全整数且连接数不超过启用数。 */
 export function parseMcpStatus(text: unknown): McpStatus | undefined {
-  const parseCounts = (connectedText: string, enabledText: string): McpStatus | undefined => {
+  // Number(undefined) 即 NaN，会被 isSafeInteger 拦下，故参数放宽后调用侧不再收窄。
+  const parseCounts = (connectedText: string | undefined, enabledText: string | undefined): McpStatus | undefined => {
     const connected = Number(connectedText);
     const enabled = Number(enabledText);
     if (
@@ -317,19 +318,9 @@ export function parseMcpStatus(text: unknown): McpStatus | undefined {
 
   const raw = stripTerminalSequences(sanitizeStatusText(text));
   const compact = raw.match(/^MCP (\d+)\/(\d+)$/);
-  if (compact) {
-    const connectedText = compact[1];
-    const enabledText = compact[2];
-    if (connectedText !== undefined && enabledText !== undefined) {
-      return parseCounts(connectedText, enabledText);
-    }
-  }
+  if (compact) return parseCounts(compact[1], compact[2]);
   const full = raw.match(/^(?:🔌 )?MCP: (\d+) servers? enabled(?: \((\d+) connected\))?(?: \((\d+) disabled\))?$/);
-  if (full) {
-    const enabledText = full[1];
-    const connectedText = full[2] ?? "0";
-    if (enabledText !== undefined) return parseCounts(connectedText, enabledText);
-  }
+  if (full) return parseCounts(full[2] ?? "0", full[1]);
   return undefined;
 }
 

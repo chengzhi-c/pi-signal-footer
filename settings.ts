@@ -97,11 +97,12 @@ function isNotFound(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
-function isDirectory(path: string): boolean | undefined {
+/** ENOENT 视同"尚未创建"返回 true；其他错误保守按非目录处理。 */
+function isUsableDir(path: string): boolean {
   try {
     return statSync(path).isDirectory();
   } catch (error) {
-    return isNotFound(error) ? undefined : false;
+    return isNotFound(error);
   }
 }
 
@@ -110,7 +111,7 @@ export function loadSettings(dir: string): SettingsLoadResult {
   try {
     source = readFileSync(join(dir, SETTINGS_FILE), "utf8");
   } catch (error) {
-    if (isNotFound(error) && isDirectory(dir) !== false) {
+    if (isNotFound(error) && isUsableDir(dir)) {
       return { settings: { ...DEFAULT_SETTINGS }, invalidKeys: [] };
     }
     return { settings: { ...DEFAULT_SETTINGS }, invalidKeys: [], error: "unreadable" };

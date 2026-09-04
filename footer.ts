@@ -420,16 +420,17 @@ function renderFooter(
   footerData: ReadonlyFooterDataProvider,
   theme: Theme,
   width: number,
-  view: Omit<StatsView, "settings" | "locale" | "lastRate">,
+  derived: DerivedResult,
   settings: FooterSettings,
   locale: ReturnType<typeof resolveLocale>,
 ): string[] {
+  const view: StatsView = { ...derived, settings, locale, lastRate: streamRate(ctx.sessionManager) };
   return layoutLines(
     width,
     theme,
     buildIdentityLevels(ctx, footerData, theme, settings),
     readContextField(ctx, theme),
-    buildStatsLine(theme, { ...view, settings, locale, lastRate: streamRate(ctx.sessionManager) }),
+    buildStatsLine(theme, view),
     statusField(footerData, theme),
   );
 }
