@@ -180,7 +180,7 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
 
   const all = renderLines(context, 160).join("\n");
   assert.match(all, /◷ 1m/);
-  assert.match(all, /↻ 900 \(90%\)/);
+  assert.match(all, /↻ 900 \(89%\)/);
   assert.match(all, /50 tok\/s/);
 
   await setField(commands, context.ctx, "time", "off");
@@ -200,7 +200,7 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
   await setField(commands, context.ctx, "cache", "off");
   {
     const out = renderLines(context, 160).join("\n");
-    assert.doesNotMatch(out, /\(90%\)/);
+    assert.doesNotMatch(out, /\(89%\)/);
     assert.match(out, /↻ 900/, "the read count itself must stay visible");
   }
 });

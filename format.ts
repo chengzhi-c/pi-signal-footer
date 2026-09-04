@@ -12,11 +12,11 @@ export function resolveLocale(setting: "auto" | UiLocale, detected = Intl.DateTi
 const COPY = {
   zh: {
     legend: [
-      "↓ 输入 ↑ 输出 token；↻ 缓存读（命中率 = 读÷(读+写)）；✎ 缓存写；$ 累计成本。",
+      "↓ 输入 ↑ 输出 token；↻ 缓存读总量（复用率 = 读÷总输入，单次口径）；✎ 缓存写总量；$ 累计成本。",
       "⎔ 上下文：百分比 + 占用条 + 已用/窗口 token；≥50% 警告，≥75% 错误，? 未知。",
       "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
       "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
-      "◷ 首末记录跨度 · 轮次（用户消息数）· 最近一次响应速率（tok/s，估算）。",
+      "◷ 首末记录跨度（含闲置）· 轮次（用户消息数）· 最近一次响应速率（tok/s，估算）。",
       "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
       "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
       "关闭图例：/signal-footer hide",
@@ -46,11 +46,11 @@ const COPY = {
   },
   en: {
     legend: [
-      "↓ in ↑ out tokens; ↻ cache read (hit = read÷(read+write)); ✎ cache write; $ cost.",
+      "↓ in ↑ out tokens; ↻ cache read total (reuse = read÷total input, last request); ✎ cache write total; $ cost.",
       "⎔ context: percent + bar + used/window tokens; ≥50% warn, ≥75% error, ? unknown.",
       "Model: provider › icon model (matched by family); ✦ thinking; ⎇ git branch.",
       "Project: full path (~ = home); session name follows after ·.",
-      "◷ first–last entry span · turns (user messages) · last rate (tok/s, estimate).",
+      "◷ first–last span (incl. idle) · turns (user msgs) · last rate (tok/s, est).",
       "⇄ MCP connected/enabled: muted = idle lazy connect; LSP ✗ = failed servers.",
       "When narrow, yield: context bar/numbers → project → branch/thinking → model.",
       "Hide legend: /signal-footer hide",
@@ -181,12 +181,13 @@ export function formatCost(cost: number): string {
   return `$${value.toFixed(3)}`;
 }
 
-/** 会话内缓存复用率：读 ÷ (读 + 写)；写为 0 表示全热，返回 100%。 */
-export function formatCacheHitRatio(read: number, write: number): string {
+/** 单次请求缓存复用率：读 ÷ 总输入（SDK 按 input+read+write 分开计费，见 calculateCost）。 */
+export function formatCacheHitRatio(read: number, write: number, input: number): string {
   const r = Number.isFinite(read) && read > 0 ? read : 0;
   const w = Number.isFinite(write) && write > 0 ? write : 0;
-  if (r + w === 0) return "0%";
-  return `${Math.round((100 * r) / (r + w))}%`;
+  const i = Number.isFinite(input) && input > 0 ? input : 0;
+  if (r + w + i === 0) return "0%";
+  return `${Math.round((100 * r) / (r + w + i))}%`;
 }
 
 /** 会话活跃跨度：不足一分钟显示秒，非法或非正值显示 "0m"。 */

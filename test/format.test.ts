@@ -61,12 +61,18 @@ test("formats cost and context values without leaking invalid numbers", () => {
   assert.equal(formatContext(50, Number.NaN), "50/?");
 });
 
-test("calculates cache hit ratios properly", () => {
-  assert.equal(formatCacheHitRatio(5_100_000, 137_000), "97%");
-  assert.equal(formatCacheHitRatio(0, 0), "0%");
-  assert.equal(formatCacheHitRatio(100, 100), "50%");
-  // 写为 0 = 缓存全热，是最省钱的理想状态，必须显示而不是留空
-  assert.equal(formatCacheHitRatio(100, 0), "100%");
+test("calculates cache reuse against total input, not read-vs-write", () => {
+  // 分母含 input：input=100k 时 5k 读只占约 5%，旧口径会虚高成 83%
+  assert.equal(formatCacheHitRatio(5_000, 1_000, 100_000), "5%");
+  assert.equal(formatCacheHitRatio(0, 0, 0), "0%");
+  assert.equal(formatCacheHitRatio(100, 100, 0), "50%");
+  assert.equal(formatCacheHitRatio(900, 100, 10), "89%");
+  // 预热轮：只写未读是 0%，必须显示而不是留空
+  assert.equal(formatCacheHitRatio(0, 800, 50), "0%");
+  // 写为 0 不再恒 100%：1 token 读相对 1M 输入约等于 0%
+  assert.equal(formatCacheHitRatio(1, 0, 1_000_000), "0%");
+  // 全量来自缓存时才是 100%
+  assert.equal(formatCacheHitRatio(100, 0, 0), "100%");
 });
 
 test("contextBarParts yields colorable segments with stable math", () => {

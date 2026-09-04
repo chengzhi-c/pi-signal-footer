@@ -46,6 +46,8 @@ type AttributedMessage = Extract<MessageEntry["message"], { role: "assistant" } 
 type UsageLike = NonNullable<AttributedMessage["usage"]>;
 
 type UsageTotals = { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+/** 最近一次有缓存活动的请求的 usage 快照：括号里的复用率只取它，不取生涯累计。 */
+type CacheSample = Pick<UsageTotals, "input" | "cacheRead" | "cacheWrite">;
 type SessionStats = { firstTs: number; lastTs: number; turns: number };
 type SessionEntries = ReturnType<ExtensionContext["sessionManager"]["getEntries"]>;
 
@@ -107,13 +109,25 @@ function entryUsage(entry: SessionEntry): UsageLike | undefined {
   return undefined;
 }
 
-// 每个可归属条目都是一次请求的增量；摘要和压缩也计入会话总量。
-function computeSessionDerived(entries: SessionEntries): { totals: UsageTotals; session: SessionStats } {
+// 每个可归属条目都是一次请求的增量；摘要和压缩的 usage 是生成摘要那次调用的增量
+// （SDK 注释确认），同样计入会话总量。
+function computeSessionDerived(entries: SessionEntries): { totals: UsageTotals; session: SessionStats; lastCache: CacheSample | undefined } {
   const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const session: SessionStats = { firstTs: Number.NaN, lastTs: Number.NaN, turns: 0 };
+  let lastCache: CacheSample | undefined;
 
   for (const entry of entries) {
-    addUsage(totals, entryUsage(entry));
+    const usage = entryUsage(entry);
+    addUsage(totals, usage);
+    // 每轮 read 都会重读历史前缀，生涯 Σread/(Σread+Σwrite) 越长越虚高；
+    // 括号率只取最近一次有缓存活动的请求，总量仍是生涯累计。
+    if (usage && finiteNonNegative(usage.cacheRead) + finiteNonNegative(usage.cacheWrite) > 0) {
+      lastCache = {
+        input: finiteNonNegative(usage.input),
+        cacheRead: finiteNonNegative(usage.cacheRead),
+        cacheWrite: finiteNonNegative(usage.cacheWrite),
+      };
+    }
     const ts = Date.parse(entry.timestamp);
     if (Number.isFinite(ts)) {
       session.firstTs = Number.isNaN(session.firstTs) ? ts : Math.min(session.firstTs, ts);
@@ -124,7 +138,7 @@ function computeSessionDerived(entries: SessionEntries): { totals: UsageTotals; 
     if (entry.type === "message" && entry.message.role === "user") session.turns++;
   }
 
-  return { totals, session };
+  return { totals, session, lastCache };
 }
 
 // 色彩语义（全部取自 pi 主题，随 dark/light 切换）：
@@ -281,19 +295,25 @@ function fitColumns(left: string, right: string, width: number, theme: Theme): s
   return truncate(left, width, theme);
 }
 
+type StatsView = {
+  totals: UsageTotals;
+  lastCache: CacheSample | undefined;
+  session: SessionStats;
+  settings: FooterSettings;
+  locale: ReturnType<typeof resolveLocale>;
+  lastRate: string;
+};
+
 function buildStatsLine(
   theme: Theme,
-  totals: UsageTotals,
-  session: SessionStats,
-  settings: FooterSettings,
-  locale: ReturnType<typeof resolveLocale>,
-  lastRate: string,
+  view: StatsView,
 ): { stats: string; trafficGroup: string; cacheGroup: string; cost: string; timeGroup: string } {
+  const { totals, lastCache, session, settings, locale, lastRate } = view;
   const pipe = theme.fg("muted", " │ ");
   const input = `${theme.fg("muted", "↓")} ${theme.fg("text", formatTokens(totals.input))}`;
   const output = `${theme.fg("muted", "↑")} ${theme.fg("text", formatTokens(totals.output))}`;
-  const hitRatio = settings.showCacheRatio && totals.cacheRead > 0
-    ? formatCacheHitRatio(totals.cacheRead, totals.cacheWrite)
+  const hitRatio = settings.showCacheRatio && lastCache && (lastCache.cacheRead + lastCache.cacheWrite) > 0
+    ? formatCacheHitRatio(lastCache.cacheRead, lastCache.cacheWrite, lastCache.input)
     : undefined;
   const cacheReadNum = `${theme.fg("text", formatTokens(totals.cacheRead))}${hitRatio ? theme.fg("muted", ` (${hitRatio})`) : ""}`;
   const timeParts: string[] = [];
@@ -381,8 +401,7 @@ function renderFooter(
   footerData: ReadonlyFooterDataProvider,
   theme: Theme,
   width: number,
-  totals: UsageTotals,
-  session: SessionStats,
+  view: Omit<StatsView, "settings" | "locale" | "lastRate">,
   settings: FooterSettings,
   locale: ReturnType<typeof resolveLocale>,
 ): string[] {
@@ -391,7 +410,7 @@ function renderFooter(
     theme,
     buildIdentityLevels(ctx, footerData, theme, settings),
     readContextField(ctx, theme),
-    buildStatsLine(theme, totals, session, settings, locale, streamRate(ctx.sessionManager)),
+    buildStatsLine(theme, { ...view, settings, locale, lastRate: streamRate(ctx.sessionManager) }),
     statusField(footerData, theme),
   );
 }
@@ -405,8 +424,8 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings): 
       dispose: unsubscribe,
       invalidate() {},
       render(width: number): string[] {
-        const { totals, session } = computeSessionDerived(ctx.sessionManager.getEntries());
-        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), totals, session, settings, locale);
+        const { totals, session, lastCache } = computeSessionDerived(ctx.sessionManager.getEntries());
+        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), { totals, session, lastCache }, settings, locale);
       },
     };
   });
