@@ -11,6 +11,8 @@ C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4
 
 Requires Pi Coding Agent >=0.84.4. Older hosts keep the native footer.
 
+The `≈` prefix marks the live rate estimate shown while a response streams (providers only report exact output tokens at the end); the frozen value after completion is exact.
+
 ## Install
 
 ```sh

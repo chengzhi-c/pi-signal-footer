@@ -11,6 +11,8 @@ C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4
 
 需要 Pi Coding Agent >=0.84.4。更旧的宿主会保留原生状态栏。
 
+`≈` 前缀表示流式响应进行中的实时速率估算（provider 只在结束时报告精确输出 token 数）；响应结束后的定格值为精确值。
+
 ## 安装
 
 ```sh

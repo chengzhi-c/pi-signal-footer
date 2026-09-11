@@ -2,6 +2,11 @@
 
 仅记录用户可感知的主要变化。 / Major user-visible changes only.
 
+## 0.5.0
+
+- **指标 / Metrics**：缓存复用率精确到两位小数（如 97.35%），不再四舍五入到整数；输入是 provider 精确计数，小数位无伪精度。 / Cache reuse now shows two decimals (e.g. 97.35%) instead of rounding to an integer; the inputs are exact provider counts, so the digits are real.
+- **速率 / Rate**：响应速率在流式期间按帧实时更新，估算值带 `≈` 前缀；响应结束后以精确 usage 定格。 / The response rate updates live while streaming, marked with `≈`; it freezes to the exact usage-based value when the response ends.
+
 ## 0.4.2
 
 - **指标 / Metrics**：缓存括号改为单次请求复用率（读÷总输入），总量仍是会话累计；预热轮显示 0% 而不是留空。 / The cache percentage is now the last request's reuse rate (read÷total input); totals stay lifetime. Pre-warm rounds show 0% instead of blank.
