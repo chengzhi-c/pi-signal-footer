@@ -212,7 +212,7 @@ export function formatSpeed(tokens: number, ms: number): string {
 }
 
 /**
- * 流式期间的输出 token 估算：CJK ≈1 tok/字，其余 ≈4 字符/tok。
+ * 流式期间的输出 token 估算：CJK/韩文音节/注音 ≈1 tok/字，其余 ≈4 字符/tok。
  * 只用于实时速率的 ≈ 前缀读数；精确值一律由 message_end 的 usage 收口。
  * 不折算 toolCall 参数：公开类型只有 arguments: Record，流式中间态靠内部字段填充，
  * 读它就是镜像会随 pi 版本漂移的形状。
@@ -233,8 +233,10 @@ export function estimateOutputTokens(
       const code = text.charCodeAt(index);
       if (
         (code >= 0x2e80 && code <= 0x30ff)
+        || (code >= 0x3105 && code <= 0x312f)
         || (code >= 0x3400 && code <= 0x4dbf)
         || (code >= 0x4e00 && code <= 0x9fff)
+        || (code >= 0xac00 && code <= 0xd7a3)
         || (code >= 0xf900 && code <= 0xfaff)
         || (code >= 0xff00 && code <= 0xffef)
       ) {

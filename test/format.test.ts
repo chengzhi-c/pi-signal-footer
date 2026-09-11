@@ -331,6 +331,9 @@ test("estimateOutputTokens counts CJK per char and other text per four chars", (
   assert.equal(estimateOutputTokens([{ type: "text", text: "中".repeat(1000) }]), 1000);
   // 代理对（CJK 扩展 B）按 2 码元计入"其余"档：估算口径，非精确分词
   assert.equal(estimateOutputTokens([{ type: "text", text: "𠀋".repeat(100) }]), 50);
+  // 韩文音节与注音按 1 tok/字计（主流 tokenizer 口径），不落入 /4 档
+  assert.equal(estimateOutputTokens([{ type: "text", text: "한".repeat(1000) }]), 1000);
+  assert.equal(estimateOutputTokens([{ type: "text", text: "ㄅ".repeat(1000) }]), 1000);
   // 多块累加；redacted thinking（空串）与 toolCall 不计
   assert.equal(
     estimateOutputTokens([
