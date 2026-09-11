@@ -7,6 +7,9 @@ import test, { after } from "node:test";
 import { copyFor } from "../format.ts";
 import {
   DEFAULT_SETTINGS,
+  FOOTER_LOCALES,
+  FOOTER_SUBCOMMANDS,
+  FOOTER_SUBCOMMAND_TOKENS,
   SETTINGS_FILE,
   SHOW_ITEM_TOKENS,
   SHOW_KEYS,
@@ -28,17 +31,24 @@ function tempDir(): string {
   return dir;
 }
 
-test("interpolates every show-item token into help copy", () => {
+test("interpolates command subcommands and show-item tokens into help copy", () => {
   const tokens = SHOW_ITEM_TOKENS.split("|");
   assert.equal(new Set(tokens).size, tokens.length);
   assert.deepEqual(tokens, SHOW_KEYS.map((key) => SHOW_TOKENS[key]));
+  assert.equal(new Set(FOOTER_SUBCOMMANDS).size, FOOTER_SUBCOMMANDS.length);
   for (const locale of ["zh", "en"] as const) {
     const text = copyFor(locale);
-    const usage = text.usage(SHOW_ITEM_TOKENS);
+    const usage = text.usage(FOOTER_SUBCOMMAND_TOKENS, SHOW_ITEM_TOKENS);
     const itemUsage = text.itemUsage(SHOW_ITEM_TOKENS);
     for (const token of tokens) {
       assert.ok(usage.includes(token), `${locale} usage missing ${token}`);
       assert.ok(itemUsage.includes(token), `${locale} itemUsage missing ${token}`);
+    }
+    for (const sub of FOOTER_SUBCOMMANDS) {
+      assert.ok(usage.includes(sub), `${locale} usage missing subcommand ${sub}`);
+    }
+    for (const localeValue of FOOTER_LOCALES) {
+      assert.ok(usage.includes(localeValue), `${locale} usage missing locale ${localeValue}`);
     }
   }
 });

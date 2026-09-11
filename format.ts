@@ -31,8 +31,8 @@ const COPY = {
     writeFailed: "无法写入 pi-signal-footer.json。",
     localeChanged: (locale: UiLocale) => "界面语言：" + locale,
     itemToggled: (name: string, enabled: boolean) => `${name}已${enabled ? "显示" : "隐藏"}`,
-    usage: (items: string) =>
-      `用法: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<项> [on|off]]；项: ${items}`,
+    usage: (subs: string, items: string) =>
+      `用法: /signal-footer [${subs} auto|zh|en|<项> [on|off]]；项: ${items}`,
     itemUsage: (items: string) =>
       `用法: /signal-footer <${items}> [on|off]（省略 on|off 即切换）`,
     localeUsage: "用法: /signal-footer locale auto|zh|en",
@@ -66,8 +66,8 @@ const COPY = {
     writeFailed: "Could not write pi-signal-footer.json.",
     localeChanged: (locale: UiLocale) => "Locale: " + locale,
     itemToggled: (name: string, enabled: boolean) => `${name} ${enabled ? "shown" : "hidden"}`,
-    usage: (items: string) =>
-      `Usage: /signal-footer [legend|hide|help|off|on|status|locale auto|zh|en|<item> [on|off]]; item: ${items}`,
+    usage: (subs: string, items: string) =>
+      `Usage: /signal-footer [${subs} auto|zh|en|<item> [on|off]]; item: ${items}`,
     itemUsage: (items: string) =>
       `Usage: /signal-footer <${items}> [on|off] (omit on|off to toggle)`,
     localeUsage: "Usage: /signal-footer locale auto|zh|en",

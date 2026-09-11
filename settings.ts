@@ -11,7 +11,13 @@ import { join } from "node:path";
 
 export const SETTINGS_FILE = "pi-signal-footer.json";
 
-export type FooterLocale = "auto" | "zh" | "en";
+export const FOOTER_LOCALES = ["auto", "zh", "en"] as const;
+export type FooterLocale = (typeof FOOTER_LOCALES)[number];
+
+export function isFooterLocale(value: unknown): value is FooterLocale {
+  return typeof value === "string" && (FOOTER_LOCALES as readonly string[]).includes(value);
+}
+
 export type FooterSettings = {
   enabled: boolean;
   locale: FooterLocale;
@@ -51,6 +57,10 @@ export const SHOW_TOKENS = {
 export const SHOW_KEYS = Object.keys(SHOW_TOKENS) as ShowKey[];
 export const SHOW_ITEM_TOKENS = Object.values(SHOW_TOKENS).join("|");
 
+// 命令面清单：帮助文案与插值测试的共同来源，新增子命令必须同步 handler 分支。
+export const FOOTER_SUBCOMMANDS = ["legend", "hide", "help", "off", "on", "status", "locale"] as const;
+export const FOOTER_SUBCOMMAND_TOKENS = FOOTER_SUBCOMMANDS.join("|");
+
 export type SettingsParseResult = {
   settings: FooterSettings;
   invalidKeys: string[];
@@ -85,8 +95,7 @@ export function parseSettings(raw: unknown): SettingsParseResult {
   }
 
   if (Object.hasOwn(raw, "locale")) {
-    const locale = raw.locale;
-    if (locale === "auto" || locale === "zh" || locale === "en") settings.locale = locale;
+    if (isFooterLocale(raw.locale)) settings.locale = raw.locale;
     else invalidKeys.push("locale");
   }
 

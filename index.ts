@@ -8,13 +8,14 @@ import { join } from "node:path";
 
 import {
   DEFAULT_SETTINGS,
+  FOOTER_SUBCOMMAND_TOKENS,
   SETTINGS_FILE,
+  isFooterLocale,
   loadSettings,
   saveSettings,
   SHOW_ITEM_TOKENS,
   SHOW_KEYS,
   SHOW_TOKENS,
-  type FooterLocale,
   type FooterSettings,
   type ShowKey,
 } from "./settings.ts";
@@ -193,7 +194,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
         }
 
         if (action === "help") {
-          ctx.ui.notify(text.usage(SHOW_ITEM_TOKENS), "info");
+          ctx.ui.notify(text.usage(FOOTER_SUBCOMMAND_TOKENS, SHOW_ITEM_TOKENS), "info");
           return;
         }
 
@@ -230,12 +231,11 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
 
         if (action === "locale") {
           const localeArg = parts[1]?.toLowerCase();
-          if (localeArg !== "auto" && localeArg !== "zh" && localeArg !== "en") {
+          if (!isFooterLocale(localeArg)) {
             ctx.ui.notify(text.localeUsage, "warning");
             return;
           }
-          const locale: FooterLocale = localeArg;
-          const next = { ...current, locale };
+          const next = { ...current, locale: localeArg };
           const wasLegendVisible = legendVisible;
           if (!persist(ctx, next)) return;
           applyFooterSetting(ctx, next);
@@ -262,7 +262,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           return;
         }
 
-        ctx.ui.notify(text.usage(SHOW_ITEM_TOKENS), "warning");
+        ctx.ui.notify(text.usage(FOOTER_SUBCOMMAND_TOKENS, SHOW_ITEM_TOKENS), "warning");
       },
     });
   };
