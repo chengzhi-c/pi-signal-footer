@@ -6,7 +6,7 @@
 
 ```text
 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main   ⎔ 12% [━━─────────────────] 36k/300k
-↓ 213 ↑ 32k │ ↻ 5.1M (97%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                             ⇄ MCP 1/1 · LSP typescript
+↓ 213 ↑ 32k │ ↻ 5.1M (97.35%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                          ⇄ MCP 1/1 · LSP typescript
 ```
 
 需要 Pi Coding Agent >=0.84.4。更旧的宿主会保留原生状态栏。

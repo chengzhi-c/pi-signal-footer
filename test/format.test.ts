@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   contextBarParts,
+  estimateOutputTokens,
   formatCacheHitRatio,
   formatContext,
   formatCost,
@@ -62,17 +63,19 @@ test("formats cost and context values without leaking invalid numbers", () => {
 });
 
 test("calculates cache reuse against total input, not read-vs-write", () => {
-  // 分母含 input：input=100k 时 5k 读只占约 5%，旧口径会虚高成 83%
-  assert.equal(formatCacheHitRatio(5_000, 1_000, 100_000), "5%");
-  assert.equal(formatCacheHitRatio(0, 0, 0), "0%");
-  assert.equal(formatCacheHitRatio(100, 100, 0), "50%");
-  assert.equal(formatCacheHitRatio(900, 100, 10), "89%");
-  // 预热轮：只写未读是 0%，必须显示而不是留空
-  assert.equal(formatCacheHitRatio(0, 800, 50), "0%");
+  // 分母含 input：input=100k 时 5k 读只占 4.72%，旧口径会虚高成 83%
+  assert.equal(formatCacheHitRatio(5_000, 1_000, 100_000), "4.72%");
+  assert.equal(formatCacheHitRatio(0, 0, 0), "0.00%");
+  assert.equal(formatCacheHitRatio(100, 100, 0), "50.00%");
+  assert.equal(formatCacheHitRatio(900, 100, 10), "89.11%");
+  // 两位口径保留舍入方向：1/3 必须显示 33.33% 而不是 33.34%/33%
+  assert.equal(formatCacheHitRatio(1, 2, 0), "33.33%");
+  // 预热轮：只写未读是 0.00%，必须显示而不是留空
+  assert.equal(formatCacheHitRatio(0, 800, 50), "0.00%");
   // 写为 0 不再恒 100%：1 token 读相对 1M 输入约等于 0%
-  assert.equal(formatCacheHitRatio(1, 0, 1_000_000), "0%");
+  assert.equal(formatCacheHitRatio(1, 0, 1_000_000), "0.00%");
   // 全量来自缓存时才是 100%
-  assert.equal(formatCacheHitRatio(100, 0, 0), "100%");
+  assert.equal(formatCacheHitRatio(100, 0, 0), "100.00%");
 });
 
 test("contextBarParts yields colorable segments with stable math", () => {
@@ -314,4 +317,24 @@ test("formatTurns uses a singular English form", () => {
   assert.equal(formatTurns(2, "zh"), "2轮");
   assert.equal(formatTurns(1, "en"), "1 turn");
   assert.equal(formatTurns(2, "en"), "2 turns");
+});
+
+test("estimateOutputTokens counts CJK per char and other text per four chars", () => {
+  assert.equal(estimateOutputTokens(undefined), 0);
+  assert.equal(estimateOutputTokens([]), 0);
+  assert.equal(estimateOutputTokens([{ type: "text", text: "你好世界" }]), 4);
+  assert.equal(estimateOutputTokens([{ type: "text", text: "abcdefgh" }]), 2);
+  // 混合：cjk=2，其余 " abcd" 5 字符 → ceil(5/4)=2
+  assert.equal(estimateOutputTokens([{ type: "text", text: "你好 abcd" }]), 4);
+  assert.equal(estimateOutputTokens([{ type: "thinking", thinking: "x".repeat(4000) }]), 1000);
+  // 多块累加；redacted thinking（空串）与 toolCall 不计
+  assert.equal(
+    estimateOutputTokens([
+      { type: "text", text: "abcd" },
+      { type: "thinking", thinking: "你好" },
+      { type: "thinking", thinking: "" },
+      { type: "toolCall" },
+    ]),
+    3,
+  );
 });

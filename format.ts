@@ -16,7 +16,8 @@ const COPY = {
       "⎔ 上下文：百分比 + 占用条 + 已用/窗口 token；≥50% 警告，≥75% 错误，? 未知。",
       "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
       "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
-      "◷ 首末记录跨度（含闲置）· 轮次（用户消息数）· 最近一次响应速率（tok/s，估算）。",
+      "◷ 首末记录跨度（含闲置）· 轮次（用户消息数）。",
+      "速率：流式中 ≈ 实时估算，结束后定格精确值（tok/s）。",
       "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
       "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
       "关闭图例：/signal-footer hide",
@@ -47,10 +48,11 @@ const COPY = {
   en: {
     legend: [
       "↓ in ↑ out tokens; ↻ cache read total (reuse = read÷total input, last request); ✎ cache write total; $ cost.",
-      "⎔ context: percent + bar + used/window tokens; ≥50% warn, ≥75% error, ? unknown.",
+      "⎔ context: percent + bar + used/window tokens; ≥50% warn, ≥75% err, ? unknown.",
       "Model: provider › icon model (matched by family); ✦ thinking; ⎇ git branch.",
       "Project: full path (~ = home); session name follows after ·.",
-      "◷ first–last span (incl. idle) · turns (user msgs) · last rate (tok/s, est).",
+      "◷ first–last span (incl. idle) · turns (user msgs).",
+      "Rate: ≈ live estimate while streaming, exact once done (tok/s).",
       "⇄ MCP connected/enabled: muted = idle lazy connect; LSP ✗ = failed servers.",
       "When narrow, yield: context bar/numbers → project → branch/thinking → model.",
       "Hide legend: /signal-footer hide",
@@ -181,13 +183,14 @@ export function formatCost(cost: number): string {
   return `$${value.toFixed(3)}`;
 }
 
-/** 单次请求缓存复用率：读 ÷ 总输入（SDK 按 input+read+write 分开计费，见 calculateCost）。 */
+/** 单次请求缓存复用率：读 ÷ 总输入（SDK 按 input+read+write 分开计费，见 calculateCost）。
+ *  输入均为 provider 精确整数，两位小数无伪精度；预热轮（只写未读）渲染 0.00% 而非留空。 */
 export function formatCacheHitRatio(read: number, write: number, input: number): string {
   const r = Number.isFinite(read) && read > 0 ? read : 0;
   const w = Number.isFinite(write) && write > 0 ? write : 0;
   const i = Number.isFinite(input) && input > 0 ? input : 0;
-  if (r + w + i === 0) return "0%";
-  return `${Math.round((100 * r) / (r + w + i))}%`;
+  if (r + w + i === 0) return "0.00%";
+  return `${((100 * r) / (r + w + i)).toFixed(2)}%`;
 }
 
 /** 会话活跃跨度：不足一分钟显示秒，非法或非正值显示 "0m"。 */
@@ -206,6 +209,39 @@ export function formatSpeed(tokens: number, ms: number): string {
   const rate = tokens / (ms / 1000);
   if (!Number.isFinite(rate)) return "";
   return rate < 1 ? "<1 tok/s" : `${Math.round(rate)} tok/s`;
+}
+
+/**
+ * 流式期间的输出 token 估算：CJK ≈1 tok/字，其余 ≈4 字符/tok。
+ * 只用于实时速率的 ≈ 前缀读数；精确值一律由 message_end 的 usage 收口。
+ * 不折算 toolCall 参数：公开类型只有 arguments: Record，流式中间态靠内部字段填充，
+ * 读它就是镜像会随 pi 版本漂移的形状。
+ */
+export function estimateOutputTokens(
+  content: readonly { type: string; text?: string; thinking?: string }[] | undefined,
+): number {
+  if (!content) return 0;
+  let cjk = 0;
+  let total = 0;
+  for (const block of content) {
+    const text = block.type === "text" ? block.text : block.type === "thinking" ? block.thinking : undefined;
+    if (!text) continue;
+    total += text.length;
+    // 码元级区间判断而非正则：代理对落在区间外按"其余"计，估算精度足够且无逐字符迭代开销。
+    for (let index = 0; index < text.length; index++) {
+      const code = text.charCodeAt(index);
+      if (
+        (code >= 0x2e80 && code <= 0x30ff)
+        || (code >= 0x3400 && code <= 0x4dbf)
+        || (code >= 0x4e00 && code <= 0x9fff)
+        || (code >= 0xf900 && code <= 0xfaff)
+        || (code >= 0xff00 && code <= 0xffef)
+      ) {
+        cjk++;
+      }
+    }
+  }
+  return cjk + Math.ceil((total - cjk) / 4);
 }
 
 /** 项目槽位：完整路径，主目录缩写为 ~。返回弱化的上级目录与加粗的末级目录名。 */

@@ -15,6 +15,7 @@ import {
   formatSpeed,
   formatTokens,
   formatTurns,
+  estimateOutputTokens,
   getModelIcon,
   normalizeContextPercent,
   parseLspStatus,
@@ -53,7 +54,12 @@ type SessionEntries = ReturnType<ExtensionContext["sessionManager"]["getEntries"
 
 // 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
 // （剔除 TTFT/排队），message_end 用精确 usage.output 收口。
-type StreamState = { timing: { tRequest: number; tFirst: number | null } | null; lastRate: string };
+// liveTokens 是流式期间的输出下限信号（时点 usage 与字符估算取历史最大）：
+// provider 大多只在末尾 chunk 写 usage，实时读数只能估算，故渲染带 ≈ 前缀。
+type StreamState = {
+  timing: { tRequest: number; tFirst: number | null; liveTokens: number } | null;
+  lastRate: string;
+};
 
 const streamStates = new WeakMap<object, StreamState>();
 
@@ -70,8 +76,15 @@ export function resetStreamState(session: object): void {
   streamStates.delete(session);
 }
 
-function streamRate(session: object): string {
-  return streamStates.get(session)?.lastRate ?? "";
+function streamRate(session: object, now: number): string {
+  const state = streamStates.get(session);
+  if (!state) return "";
+  const timing = state.timing;
+  if (timing && timing.tFirst !== null && timing.liveTokens > 0) {
+    const rate = formatSpeed(timing.liveTokens, now - timing.tFirst);
+    if (rate) return `≈${rate}`;
+  }
+  return state.lastRate;
 }
 
 /** homedir() 解析失败不能击穿渲染循环；拿不到主目录时保留完整路径。 */
@@ -423,8 +436,9 @@ function renderFooter(
   derived: DerivedResult,
   settings: FooterSettings,
   locale: ReturnType<typeof resolveLocale>,
+  now: number,
 ): string[] {
-  const view: StatsView = { ...derived, settings, locale, lastRate: streamRate(ctx.sessionManager) };
+  const view: StatsView = { ...derived, settings, locale, lastRate: streamRate(ctx.sessionManager, now) };
   return layoutLines(
     width,
     theme,
@@ -435,7 +449,8 @@ function renderFooter(
   );
 }
 
-export function installFooter(ctx: ExtensionContext, settings: FooterSettings): void {
+/** now 注入仅供测试确定性地驱动实时速率；生产路径用宿主默认时钟。 */
+export function installFooter(ctx: ExtensionContext, settings: FooterSettings, now: () => number = Date.now): void {
   ctx.ui.setFooter((tui, theme, footerData) => {
     const locale = resolveLocale(settings.locale);
     const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
@@ -464,27 +479,41 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings): 
       invalidate() {},
       render(width: number): string[] {
         const derived = memoizedDerived(ctx.sessionManager.getEntries());
-        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale);
+        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale, now());
       },
     };
   });
 }
 
 type StreamKind = "start" | "update" | "end";
-type StreamMessage = { role: string; usage?: { output?: number } };
+type StreamMessage = {
+  role: string;
+  usage?: { output?: number };
+  // AgentMessage 联合里 user/toolResult 的 content 可为 string；估算只认数组形态。
+  content?: string | readonly { type: string; text?: string; thinking?: string }[];
+};
 
 export function handleStream(kind: StreamKind, message: StreamMessage, now: number, session: object): void {
   if (message.role !== "assistant") return;
   if (kind === "start") {
     const state = streamStateFor(session);
-    state.timing = { tRequest: now, tFirst: null };
+    state.timing = { tRequest: now, tFirst: null, liveTokens: 0 };
     state.lastRate = "";
     return;
   }
   const state = streamStates.get(session);
   if (!state) return;
   if (kind === "update") {
-    if (state.timing && state.timing.tFirst === null) state.timing.tFirst = now;
+    const timing = state.timing;
+    if (!timing) return;
+    if (timing.tFirst === null) timing.tFirst = now;
+    // 历史最大值：读数单调，provider 重发更小的 partial 或 Anthropic 的初始小
+    // output 值都不会压低实时速率。
+    timing.liveTokens = Math.max(
+      timing.liveTokens,
+      finiteNonNegative(message.usage?.output),
+      estimateOutputTokens(typeof message.content === "string" ? undefined : message.content),
+    );
     return;
   }
   if (!state.timing) return;

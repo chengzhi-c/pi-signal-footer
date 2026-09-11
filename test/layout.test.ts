@@ -176,7 +176,7 @@ test("accumulates assistant, tool, and summary usage exactly once", async () => 
 
   assert.match(output, /↓ 100/);
   assert.match(output, /↑ 15/);
-  assert.match(output, /↻ 200 \(57%\)/);
+  assert.match(output, /↻ 200 \(57\.14%\)/);
   assert.match(output, /✎ 50/);
   assert.match(output, /\$0\.190/);
 });
@@ -184,7 +184,7 @@ test("accumulates assistant, tool, and summary usage exactly once", async () => 
 test("shows the reuse rate of the latest cache-active request", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-  // 单次请求 900÷(10+900+0)=99%；生涯累计 900÷(10+900+100)=89%，括号里必须是前者
+  // 单次请求 900÷(10+900+0)=98.90%；生涯累计 900÷(10+900+100)=89.11%，括号里必须是前者
   context.entries.push({
     type: "message",
     timestamp: "2026-01-01T00:00:00.000Z",
@@ -193,7 +193,7 @@ test("shows the reuse rate of the latest cache-active request", async () => {
   await startSession(handlers, context);
   const output = renderLines(context, 160).join("\n");
 
-  assert.match(output, /↻ 900 \(99%\)/);
+  assert.match(output, /↻ 900 \(98\.90%\)/);
 });
 
 test("rates the latest cache-active request instead of lifetime totals", async () => {
@@ -214,9 +214,10 @@ test("rates the latest cache-active request instead of lifetime totals", async (
   await startSession(handlers, context);
   const output = renderLines(context, 160).join("\n");
 
-  // 总量是生涯的（↻ 900），括号率是最近一次的 99%，不是生涯 85%
-  assert.match(output, /↻ 900 \(99%\)/);
-  assert.doesNotMatch(output, /85%/);
+  // 总量是生涯的（↻ 900），括号率是最近一次的 98.90%，不是生涯 84.91%
+  assert.match(output, /↻ 900 \(98\.90%\)/);
+  // 两位口径下生涯值渲染为 84.91%，防护必须盯住新串而非旧的 85%
+  assert.doesNotMatch(output, /84\.91%/);
 });
 
 test("shows 0% when cache was only written, never read", async () => {
@@ -230,7 +231,7 @@ test("shows 0% when cache was only written, never read", async () => {
   await startSession(handlers, context);
   const output = renderLines(context, 160).join("\n");
 
-  assert.match(output, /↻ 0 \(0%\)/);
+  assert.match(output, /↻ 0 \(0\.00%\)/);
 });
 
 test("sacrifices footer fields in the order the legend advertises", async () => {

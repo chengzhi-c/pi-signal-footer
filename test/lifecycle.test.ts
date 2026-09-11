@@ -3,9 +3,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { handleStream, resolveHome } from "../footer.ts";
+import { handleStream, installFooter, resolveHome } from "../footer.ts";
 import { hostVersionTooOld } from "../index.ts";
-import { SETTINGS_FILE } from "../settings.ts";
+import { DEFAULT_SETTINGS, SETTINGS_FILE } from "../settings.ts";
 
 import {
   createApi,
@@ -327,4 +327,59 @@ test("does not clear an existing footer when starting disabled", async () => {
   await startSession(handlers, context);
 
   assert.equal(context.footerCalls.at(-1), otherFooter, "disabled startup must not clear another footer");
+});
+
+test("tracks the response rate live while streaming and freezes the exact value at end", () => {
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  let fakeNow = 3000;
+  installFooter(
+    context.ctx as unknown as Parameters<typeof installFooter>[0],
+    { ...DEFAULT_SETTINGS, locale: "en" },
+    () => fakeNow,
+  );
+  const session = context.ctx.sessionManager;
+
+  handleStream("start", { role: "assistant" }, 0, session);
+  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/, "no rate before the first token");
+
+  // 8000 个拉丁字符 ≈ 2000 token；tFirst=1000，now=3000 → 2000 tok / 2 s = 1000 tok/s
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(8000) }] }, 1000, session);
+  assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
+
+  // provider 重发更小的 partial：liveTokens 保持历史最大值（2000 tok / 3 s ≈ 667）
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(4000) }] }, 4000, session);
+  fakeNow = 4000;
+  assert.match(openFooter(context).render(160).join("\n"), /≈667 tok\/s/);
+
+  handleStream("end", { role: "assistant", usage: { output: 3000 } }, 6000, session);
+  const out = openFooter(context).render(160).join("\n");
+  assert.match(out, /600 tok\/s/);
+  assert.doesNotMatch(out, /≈/, "the finalized rate must not stay marked as an estimate");
+});
+
+test("uses streamed usage.output when the provider pushes it mid-stream", () => {
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  installFooter(
+    context.ctx as unknown as Parameters<typeof installFooter>[0],
+    { ...DEFAULT_SETTINGS, locale: "en" },
+    () => 5000,
+  );
+  const session = context.ctx.sessionManager;
+  handleStream("start", { role: "assistant" }, 0, session);
+  // tFirst=2000，now=5000 → 1500 tok / 3 s = 500 tok/s
+  handleStream("update", { role: "assistant", usage: { output: 1500 } }, 2000, session);
+  assert.match(openFooter(context).render(160).join("\n"), /≈500 tok\/s/);
+});
+
+test("shows no live rate while only empty or redacted blocks have streamed", () => {
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  installFooter(
+    context.ctx as unknown as Parameters<typeof installFooter>[0],
+    { ...DEFAULT_SETTINGS, locale: "en" },
+    () => 3000,
+  );
+  const session = context.ctx.sessionManager;
+  handleStream("start", { role: "assistant" }, 0, session);
+  handleStream("update", { role: "assistant", content: [{ type: "thinking", thinking: "" }] }, 1000, session);
+  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
 });
