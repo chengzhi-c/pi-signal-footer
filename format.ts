@@ -227,7 +227,8 @@ export function estimateOutputTokens(
     const text = block.type === "text" ? block.text : block.type === "thinking" ? block.thinking : undefined;
     if (!text) continue;
     total += text.length;
-    // 码元级区间判断而非正则：代理对落在区间外按"其余"计，估算精度足够且无逐字符迭代开销。
+    // 码元级区间比较而非逐字符正则调用：热路径（每个 chunk 事件全量扫描）下开销更低；
+    // 代理对落在区间外按"其余"计，估算精度足够。
     for (let index = 0; index < text.length; index++) {
       const code = text.charCodeAt(index);
       if (

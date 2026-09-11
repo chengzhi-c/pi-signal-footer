@@ -47,9 +47,8 @@ test("interpolates command subcommands and show-item tokens into help copy", () 
     for (const sub of FOOTER_SUBCOMMANDS) {
       assert.ok(usage.includes(sub), `${locale} usage missing subcommand ${sub}`);
     }
-    for (const localeValue of FOOTER_LOCALES) {
-      assert.ok(usage.includes(localeValue), `${locale} usage missing locale ${localeValue}`);
-    }
+    // 精确绑定 locale 参数段，避免 includes("en") 被 "legend" 子串意外满足
+    assert.ok(usage.includes(FOOTER_LOCALES.join("|")), `${locale} usage missing locale segment`);
   }
 });
 

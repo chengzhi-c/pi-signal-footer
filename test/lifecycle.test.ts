@@ -383,3 +383,20 @@ test("shows no live rate while only empty or redacted blocks have streamed", () 
   handleStream("update", { role: "assistant", content: [{ type: "thinking", thinking: "" }] }, 1000, session);
   assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
 });
+
+test("drops the live estimate when the response ends without output usage", () => {
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  installFooter(
+    context.ctx as unknown as Parameters<typeof installFooter>[0],
+    { ...DEFAULT_SETTINGS, locale: "en" },
+    () => 3000,
+  );
+  const session = context.ctx.sessionManager;
+  handleStream("start", { role: "assistant" }, 0, session);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(8000) }] }, 1000, session);
+  assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
+
+  // abort/error 收口：end 携带零 usage 时不得残留 ≈ 估算，也不得显示 0 tok/s
+  handleStream("end", { role: "assistant", usage: { output: 0 } }, 4000, session);
+  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
+});

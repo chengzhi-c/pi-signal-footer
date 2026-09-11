@@ -327,6 +327,10 @@ test("estimateOutputTokens counts CJK per char and other text per four chars", (
   // 混合：cjk=2，其余 " abcd" 5 字符 → ceil(5/4)=2
   assert.equal(estimateOutputTokens([{ type: "text", text: "你好 abcd" }]), 4);
   assert.equal(estimateOutputTokens([{ type: "thinking", thinking: "x".repeat(4000) }]), 1000);
+  // 纯 CJK 长文本：逐字计，不套 /4
+  assert.equal(estimateOutputTokens([{ type: "text", text: "中".repeat(1000) }]), 1000);
+  // 代理对（CJK 扩展 B）按 2 码元计入"其余"档：估算口径，非精确分词
+  assert.equal(estimateOutputTokens([{ type: "text", text: "𠀋".repeat(100) }]), 50);
   // 多块累加；redacted thinking（空串）与 toolCall 不计
   assert.equal(
     estimateOutputTokens([

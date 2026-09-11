@@ -80,11 +80,12 @@ function streamRate(session: object, now: number): string {
   const state = streamStates.get(session);
   if (!state) return "";
   const timing = state.timing;
-  if (timing && timing.tFirst !== null && timing.liveTokens > 0) {
-    const rate = formatSpeed(timing.liveTokens, now - timing.tFirst);
-    if (rate) return `≈${rate}`;
-  }
-  return state.lastRate;
+  // 流式中绝不回退定格值：message_start 已清 lastRate，结构性写死该不变式，
+  // 防止未来改动让上一请求的速率冒充当前请求的实时读数。
+  if (!timing) return state.lastRate;
+  if (timing.tFirst === null) return "";
+  const rate = formatSpeed(timing.liveTokens, now - timing.tFirst);
+  return rate ? `≈${rate}` : "";
 }
 
 /** homedir() 解析失败不能击穿渲染循环；拿不到主目录时保留完整路径。 */
