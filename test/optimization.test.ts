@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createOutputEstimator, estimateOutputTokens, formatDuration } from "../format.ts";
 import { installFooter } from "../footer.ts";
-import { handleStream, holdWork } from "../stream.ts";
+import { handleStream, holdWork, pushRateSample, RATE_WINDOW_MAX_SAMPLES, type RateSample } from "../stream.ts";
 import { DEFAULT_SETTINGS } from "../settings.ts";
 
 import { createApi, createContext, openFooter, pinLocale, renderLines, startSession, type Harness } from "./harness.ts";
@@ -268,6 +268,21 @@ test("A3: the finalized end rate is unchanged by windowing", () => {
   const out = openFooter(context).render(160).join("\n");
   assert.match(out, /600 tok\/s/);
   assert.doesNotMatch(out, /≈/);
+});
+
+test("A3: the sample buffer stays within its documented safety cap", () => {
+  // 数量上限是防无界增长的安全上限，注释标定 256；push 前的判据必须让稳态
+  // 恰好等于上限，而不是上限+1。600 个样本 × 1ms（600ms 跨度）不触发时间驱逐，
+  // 纯靠数量上限收口；灌入数远超上限（ recalibration 到 512 也成立）。
+  const samples: RateSample[] = [];
+  for (let index = 0; index < 600; index++) {
+    pushRateSample(samples, index, index);
+  }
+  assert.equal(samples.length, RATE_WINDOW_MAX_SAMPLES);
+  // 时间驱逐不回归：一次远超回看跨度的 push 把旧样本全部挤出。
+  pushRateSample(samples, 5000, 600);
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0]?.t, 5000);
 });
 
 // ===== B1 边界补强：只补真实会踩的，不凑覆盖率 =====

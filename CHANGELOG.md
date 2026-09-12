@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- **设置 / Settings**：设置文件从一类错误直接改成另一类错误（如解析失败 → 字段非法）时也会再次提示，不再因为「警告过一次」而对新问题静默回退默认值。 / When the settings file switches from one error to another (e.g. unparseable JSON → invalid field), the new problem warns again instead of staying silent after the first warning.
 - **时长 / Duration**：手动 `/compact` 期间 `◷` 继续前进，不再冻到压缩条目落盘才补上。 / `◷` keeps advancing during a manual `/compact`, instead of freezing until the compaction entry lands.
 - **性能 / Performance**：流式期间的输出估算改为增量累加——每个 chunk 只扫各块新增后缀，不再对累积全文全量重扫（50KB 工具参数 200 chunk 全程 ~26ms → ~4ms）；`≈` 读数语义与输出值不变。 / The streaming output estimate now accumulates incrementally — each chunk scans only the newly appended suffix instead of re-scanning the full text (~26ms → ~4ms across 200 chunks of 50KB tool arguments); `≈` readings and their values are unchanged.
 - **时长 / Duration**：工具执行期间 `◷` 继续前进，不再冻到 toolResult 落盘才补上。 / `◷` keeps advancing while tools run, instead of freezing until the toolResult lands.

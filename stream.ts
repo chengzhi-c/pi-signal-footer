@@ -20,9 +20,9 @@ const RATE_WINDOW_MIN_MS = 500;
 /** 安全上限：防样本数组无界增长。标定式：上限 ≥ RATE_WINDOW_MS 内可到达的最大样本数，
  *  否则高频 chunk 下窗口被压到 RATE_WINDOW_MIN_MS 以下，静默退回全程平均。
  *  256 上限把可用窗口撑到约 500 chunk/s（256 ÷ 500ms），对实测 10–50 chunk/s 留一个量级余量。 */
-const RATE_WINDOW_MAX_SAMPLES = 256;
+export const RATE_WINDOW_MAX_SAMPLES = 256;
 
-type RateSample = { t: number; tokens: number };
+export type RateSample = { t: number; tokens: number };
 export type StreamState = {
   timing: {
     tRequest: number;
@@ -111,6 +111,15 @@ export type StreamMessage = {
   content?: string | readonly { type: string; text?: string; thinking?: string; arguments?: unknown }[];
 };
 
+/** 窗口采样：先挤出超出回看跨度的旧样本（暂停段自动出局），再按数量上限收口并记录
+ *  (时刻, 累计 token)。稳态长度恰好等于 RATE_WINDOW_MAX_SAMPLES——判据用 >=，
+ *  push 后不会超出注释标定的安全上限。导出仅为可测性。 */
+export function pushRateSample(samples: RateSample[], now: number, tokens: number): void {
+  while (samples[0] !== undefined && now - samples[0].t > RATE_WINDOW_MS) samples.shift();
+  if (samples.length >= RATE_WINDOW_MAX_SAMPLES) samples.shift();
+  samples.push({ t: now, tokens });
+}
+
 export function handleStream(kind: StreamKind, message: StreamMessage, now: number, session: object): void {
   if (message.role !== "assistant") return;
   if (kind === "start") {
@@ -132,10 +141,8 @@ export function handleStream(kind: StreamKind, message: StreamMessage, now: numb
       finiteNonNegative(message.usage?.output),
       timing.estimator.estimate(typeof message.content === "string" ? undefined : message.content),
     );
-    // 窗口采样：先挤出超出回看跨度的旧样本（暂停段自动出局），再记录 (时刻, 累计 token)。
-    while (timing.samples[0] !== undefined && now - timing.samples[0].t > RATE_WINDOW_MS) timing.samples.shift();
-    if (timing.samples.length > RATE_WINDOW_MAX_SAMPLES) timing.samples.shift();
-    timing.samples.push({ t: now, tokens: timing.liveTokens });
+    // 窗口采样：驱逐过期、按上限收口并记录 (时刻, 累计 token)。
+    pushRateSample(timing.samples, now, timing.liveTokens);
     return;
   }
   if (!state.timing) return;

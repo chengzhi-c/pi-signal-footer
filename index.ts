@@ -76,7 +76,8 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
   const hostVersion = options.hostVersion ?? VERSION;
   const footerSupported = !hostVersionTooOld(hostVersion);
   let settings: FooterSettings = { ...DEFAULT_SETTINGS };
-  let warnedInvalid = false;
+  // 记录「上次已警告的问题文本」而非布尔：文件从一类错误直接改成另一类时，新问题也要有自己的警告。
+  let warnedIssue: string | undefined;
   let warnedHost = false;
   let legendVisible = false;
   // Avoid clearing the global slot when this instance never installed it;
@@ -124,12 +125,12 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           ? copyFor(locale).invalidFields(loaded.invalidKeys)
           : undefined;
     if (issue) {
-      if (!warnedInvalid) {
-        warnedInvalid = true;
+      if (warnedIssue !== issue) {
+        warnedIssue = issue;
         ctx.ui.notify(issue, "warning");
       }
     } else {
-      warnedInvalid = false;
+      warnedIssue = undefined;
     }
     return loaded;
   };
@@ -138,7 +139,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     try {
       saveSettings(agentDir(), next);
       settings = next;
-      warnedInvalid = false;
+      warnedIssue = undefined;
       return true;
     } catch {
       ctx.ui.notify(copyFor(resolveLocale(settings.locale)).writeFailed, "error");

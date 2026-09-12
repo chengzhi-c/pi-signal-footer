@@ -329,6 +329,28 @@ test("warns again after a repaired settings file becomes invalid", async () => {
   assert.equal(warnings(), 2);
 });
 
+test("warns again when the file switches to a different error without a valid state", async () => {
+  const agentDir = tempAgentDir();
+  writeFileSync(join(agentDir, SETTINGS_FILE), "{not json", "utf8");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const command = commands.get("signal-footer")!;
+  const warnings = () => context.notifications.filter((item) => item.level === "warning").length;
+
+  await startSession(handlers, context);
+  assert.equal(warnings(), 1, "invalid-json must warn");
+
+  // 直接换成另一类错误（中间没有合法状态）：用户在静默回退默认值，必须再提示。
+  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: "false" }), "utf8");
+  await command("status", context.ctx);
+  const second = context.notifications.filter((item) => item.level === "warning").at(-1)?.message ?? "";
+  assert.equal(warnings(), 2, "a different issue must warn again");
+  assert.match(second, /enabled/, "the new warning must describe the new issue");
+
+  await command("status", context.ctx);
+  assert.equal(warnings(), 2, "the same issue must not warn twice");
+});
+
 test("does not claim success or change the footer when settings cannot be written", async () => {
   const parent = tempAgentDir();
   const agentDir = join(parent, "agent-file");
