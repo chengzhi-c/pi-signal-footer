@@ -30,7 +30,19 @@ test("ships the runtime modules and both READMEs", () => {
     "index.ts",
     "settings.ts",
     "footer.ts",
+    "palette.ts",
+    "stream.ts",
   ]);
+});
+
+test("keeps the TypeScript project and the published file list covering the same modules", () => {
+  // 新模块一旦漏进 tsconfig include，typecheck 会静默跳过它——和漏进发布清单一样是漂移
+  const tsconfig = JSON.parse(readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8")) as { include?: string[] };
+  const published = manifest.files?.filter((entry) => entry.endsWith(".ts")) ?? [];
+  assert.ok(published.length > 0);
+  for (const module of published) {
+    assert.ok(tsconfig.include?.includes(module), `tsconfig must typecheck published module ${module}`);
+  }
 });
 
 test("keeps the runtime host floor, peer floor, and READMEs aligned", () => {

@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { handleStream, installFooter, resolveHome } from "../footer.ts";
+import { installFooter, resolveHome } from "../footer.ts";
+import { handleStream } from "../stream.ts";
 import { hostVersionTooOld } from "../index.ts";
 import { DEFAULT_SETTINGS, SETTINGS_FILE } from "../settings.ts";
 

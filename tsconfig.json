@@ -13,5 +13,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["index.ts", "format.ts", "settings.ts", "footer.ts", "bench/**/*.ts", "test/**/*.ts"]
+    "include": ["index.ts", "format.ts", "settings.ts", "footer.ts", "palette.ts", "stream.ts", "bench/**/*.ts", "test/**/*.ts"]
 }

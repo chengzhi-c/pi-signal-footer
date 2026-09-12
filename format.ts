@@ -1,8 +1,13 @@
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
-import type { ShowKey } from "./settings.ts";
+import type { FooterTheme, ShowKey } from "./settings.ts";
 
 export type UiLocale = "zh" | "en";
+
+/** 会话条目可能来自手工编辑或旧版本写入的 JSONL，数值字段不保证是有限非负数。 */
+export function finiteNonNegative(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
 
 export function resolveLocale(setting: "auto" | UiLocale, detected = Intl.DateTimeFormat().resolvedOptions().locale): UiLocale {
   if (setting === "zh" || setting === "en") return setting;
@@ -12,19 +17,22 @@ export function resolveLocale(setting: "auto" | UiLocale, detected = Intl.DateTi
 const COPY = {
   zh: {
     legend: [
-      "↓ 输入 ↑ 输出 token；↻ 缓存读总量（复用率 = 读÷总输入，单次口径）；✎ 缓存写总量；$ 累计成本。",
+      "↓ 输入 ↑ 输出 token（流式中 ↑ 带 ≈+ 在途估算，含工具调用参数）；↻ 缓存读总量（括号 = 上轮请求 读÷总输入）；✎ 缓存写总量；$ 累计成本。",
       "⎔ 上下文：百分比 + 占用条 + 已用/窗口 token；≥50% 警告，≥75% 错误，? 未知。",
       "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
       "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
-      "◷ 首末记录跨度（含闲置）· 轮次（用户消息数）。",
+      "◷ agent 工作时长（人类间隔不计；单段封顶 10 分钟）· 轮次（用户消息数）。",
       "速率：流式中 ≈ 实时估算，结束后定格精确值（tok/s）。",
       "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
       "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
-      "关闭图例：/signal-footer hide",
+      "关闭图例：/signal-footer hide；外观切换：/signal-footer theme",
     ],
     turns: (n: number) => `${n}轮`,
+    ratioScope: "上轮",
     off: "已关闭可读状态栏，恢复 Pi 原生状态栏；/signal-footer on 可重新开启。",
     on: "已启用可读状态栏，替代 Pi 原生状态栏。",
+    themeChanged: (theme: FooterTheme) => (theme === "vivid" ? "外观已切换为鲜明模式（vivid）。" : "外观已切换为经典模式（classic）。"),
+    themeUsage: "用法: /signal-footer theme [classic|vivid]（省略即在两种外观间切换）",
     invalidSettings: "pi-signal-footer.json 无法解析，已回退默认设置。",
     invalidFields: (keys: readonly string[]) => "配置字段无效：" + keys.join(", ") + "，已使用默认值。",
     unreadableSettings: "无法读取 pi-signal-footer.json，已回退默认设置。",
@@ -41,25 +49,29 @@ const COPY = {
       enabled: (value: string) => `启用: ${value}`,
       item: (token: string, value: string) => `${token}: ${value}`,
       locale: (value: UiLocale) => `语言: ${value}`,
+      theme: (value: FooterTheme) => `外观: ${value}`,
       error: (value: string) => `错误: ${value}`,
       invalid: (value: string) => `无效: ${value}`,
     },
   },
   en: {
     legend: [
-      "↓ in ↑ out tokens; ↻ cache read total (reuse = read÷total input, last request); ✎ cache write total; $ cost.",
+      "↓ in ↑ out tokens (≈+ in-flight estimate incl. tool-call args); ↻ cache read total (parens = last request read÷input); ✎ cache write total; $ cost.",
       "⎔ context: percent + bar + used/window tokens; ≥50% warn, ≥75% err, ? unknown.",
       "Model: provider › icon model (matched by family); ✦ thinking; ⎇ git branch.",
       "Project: full path (~ = home); session name follows after ·.",
-      "◷ first–last span (incl. idle) · turns (user msgs).",
+      "◷ agent work time (human gaps excluded; 10-min cap) · turns (user msgs).",
       "Rate: ≈ live estimate while streaming, exact once done (tok/s).",
       "⇄ MCP connected/enabled: muted = idle lazy connect; LSP ✗ = failed servers.",
       "When narrow, yield: context bar/numbers → project → branch/thinking → model.",
-      "Hide legend: /signal-footer hide",
+      "Hide legend: /signal-footer hide; theme: /signal-footer theme",
     ],
     turns: (n: number) => (n === 1 ? "1 turn" : `${n} turns`),
+    ratioScope: "last",
     off: "Readable footer disabled; the native footer is back. Use /signal-footer on to re-enable.",
     on: "Readable footer enabled, replacing the native footer.",
+    themeChanged: (theme: FooterTheme) => (theme === "vivid" ? "Theme set to vivid (colorful)." : "Theme set to classic."),
+    themeUsage: "Usage: /signal-footer theme [classic|vivid] (omit to toggle)",
     invalidSettings: "Could not parse pi-signal-footer.json; using defaults.",
     invalidFields: (keys: readonly string[]) => "Invalid settings fields: " + keys.join(", ") + "; using defaults.",
     unreadableSettings: "Could not read pi-signal-footer.json; using defaults.",
@@ -76,6 +88,7 @@ const COPY = {
       enabled: (value: string) => `enabled: ${value}`,
       item: (token: string, value: string) => `${token}: ${value}`,
       locale: (value: UiLocale) => `locale: ${value}`,
+      theme: (value: FooterTheme) => `theme: ${value}`,
       error: (value: string) => `error: ${value}`,
       invalid: (value: string) => `invalid: ${value}`,
     },
@@ -116,25 +129,34 @@ export type McpStatus = { connected: number; enabled: number };
 
 type ModelIconRule = {
   icon: string;
+  vividIcon?: string;
   modelTerms: readonly string[];
   providerTokens?: readonly string[];
 };
 
 const MODEL_ICON_RULES: readonly ModelIconRule[] = [
-  { icon: "𝕏", modelTerms: ["grok"], providerTokens: ["grok", "xai"] },
-  { icon: "𝐙", modelTerms: ["glm", "chatglm"], providerTokens: ["glm", "zhipu", "chatglm"] },
-  { icon: "✻", modelTerms: ["claude"], providerTokens: ["claude", "anthropic"] },
-  { icon: "✧", modelTerms: ["gemini", "gemma"], providerTokens: ["gemini", "gemma", "google"] },
-  { icon: "◎", modelTerms: ["deepseek", "deep-seek"], providerTokens: ["deepseek"] },
-  { icon: "𝐐", modelTerms: ["qwen", "qwq"], providerTokens: ["qwen", "qwq", "tongyi"] },
-  { icon: "𝕃", modelTerms: ["llama"], providerTokens: ["meta"] },
-  { icon: "𝐌", modelTerms: ["mistral", "codestral", "mixtral"], providerTokens: ["mistral", "codestral", "mixtral"] },
-  { icon: "𝐊", modelTerms: ["kimi"], providerTokens: ["kimi", "moonshot", "moonshotai"] },
-  { icon: "𝐃", modelTerms: ["doubao"], providerTokens: ["doubao", "bytedance"] },
-  { icon: "①", modelTerms: ["yi-"], providerTokens: ["01-ai", "lingyi"] },
-  { icon: "⬡", modelTerms: ["minimax", "abab"], providerTokens: ["minimax", "abab"] },
-  { icon: "⬢", modelTerms: ["gpt", "o1", "o3", "chatgpt"], providerTokens: ["gpt", "o1", "o3", "openai", "chatgpt"] },
-  { icon: "⌂", modelTerms: ["ollama", "local"], providerTokens: ["ollama", "local"] },
+  { icon: "𝕏", vividIcon: "✖️", modelTerms: ["grok"], providerTokens: ["grok", "xai"] },
+  { icon: "𝐙", vividIcon: "💡", modelTerms: ["glm", "chatglm"], providerTokens: ["glm", "zhipu", "chatglm"] },
+  { icon: "✻", vividIcon: "🎭", modelTerms: ["claude"], providerTokens: ["claude", "anthropic"] },
+  { icon: "✧", vividIcon: "✨", modelTerms: ["gemini", "gemma"], providerTokens: ["gemini", "gemma", "google"] },
+  { icon: "◎", vividIcon: "🐳", modelTerms: ["deepseek", "deep-seek"], providerTokens: ["deepseek"] },
+  { icon: "𝐐", vividIcon: "🔮", modelTerms: ["qwen", "qwq"], providerTokens: ["qwen", "qwq", "tongyi"] },
+  { icon: "𝕃", vividIcon: "🦙", modelTerms: ["llama"], providerTokens: ["meta"] },
+  { icon: "𝐌", vividIcon: "🌊", modelTerms: ["mistral", "codestral", "mixtral"], providerTokens: ["mistral", "codestral", "mixtral"] },
+  { icon: "𝐊", vividIcon: "🌙", modelTerms: ["kimi"], providerTokens: ["kimi", "moonshot", "moonshotai"] },
+  { icon: "𝐃", vividIcon: "🥟", modelTerms: ["doubao"], providerTokens: ["doubao", "bytedance"] },
+  { icon: "①", vividIcon: "🌟", modelTerms: ["yi-"], providerTokens: ["01-ai", "lingyi"] },
+  { icon: "⬡", vividIcon: "🐚", modelTerms: ["minimax", "abab"], providerTokens: ["minimax", "abab"] },
+  { icon: "𝐂", vividIcon: "🌐", modelTerms: ["command", "c4ai"], providerTokens: ["cohere"] },
+  { icon: "Φ", vividIcon: "💠", modelTerms: ["phi-"], providerTokens: ["microsoft"] },
+  { icon: "✳", vividIcon: "🔍", modelTerms: ["sonar"], providerTokens: ["perplexity"] },
+  { icon: "𝐁", vividIcon: "🛶", modelTerms: ["baichuan"], providerTokens: ["baichuan"] },
+  { icon: "𝐒", vividIcon: "🪜", modelTerms: ["step-"], providerTokens: ["stepfun", "step"] },
+  { icon: "𝐇", vividIcon: "混", modelTerms: ["hunyuan"], providerTokens: ["hunyuan", "tencent"] },
+  // o1/o3 只在 providerTokens 里判：真实 o 系列必带 OpenAI provider，作为 model
+  // 裸子串却会误伤 solar-o1、ernie-4.5-o1-preview 等第三方模型名。
+  { icon: "⬢", vividIcon: "🤖", modelTerms: ["gpt", "chatgpt"], providerTokens: ["gpt", "o1", "o3", "openai", "chatgpt"] },
+  { icon: "⌂", vividIcon: "💻", modelTerms: ["ollama", "local"], providerTokens: ["ollama", "local"] },
 ];
 
 function includesAny(value: string, terms: readonly string[]): boolean {
@@ -142,7 +164,7 @@ function includesAny(value: string, terms: readonly string[]): boolean {
 }
 
 /** 模型名允许子串变体；provider 按分隔 token 或完整 id 匹配，避免 openaiish 误判。 */
-export function getModelIcon(modelId = "", provider = ""): string {
+export function getModelIcon(modelId = "", provider = "", theme: FooterTheme = "classic"): string {
   const model = modelId.toLowerCase();
   const normalizedProvider = provider.toLowerCase();
   const providerTokens = new Set(normalizedProvider.split(/[^a-z0-9]+/).filter(Boolean));
@@ -152,10 +174,10 @@ export function getModelIcon(modelId = "", provider = ""): string {
       includesAny(model, rule.modelTerms)
       || rule.providerTokens?.some((token) => normalizedProvider === token || providerTokens.has(token))
     ) {
-      return rule.icon;
+      return theme === "vivid" ? (rule.vividIcon ?? rule.icon) : rule.icon;
     }
   }
-  return "◈";
+  return theme === "vivid" ? "🤖" : "◈";
 }
 
 /** 先取整再选档，避免标签进位后超过自身档位宽度；非法值显示为 0。 */
@@ -178,9 +200,9 @@ export function formatTokens(count: number): string {
   return `${Math.round(value / 1_000_000)}M`;
 }
 
-export function formatCost(cost: number): string {
+export function formatCost(cost: number, symbol = "$"): string {
   const value = Number.isFinite(cost) && cost > 0 ? cost : 0;
-  return `$${value.toFixed(3)}`;
+  return `${symbol}${symbol === "$" ? "" : " "}${value.toFixed(3)}`;
 }
 
 /** 单次请求缓存复用率：读 ÷ 总输入（SDK 按 input+read+write 分开计费，见 calculateCost）。
@@ -211,20 +233,37 @@ export function formatSpeed(tokens: number, ms: number): string {
   return rate < 1 ? "<1 tok/s" : `${Math.round(rate)} tok/s`;
 }
 
+/** arguments 由宿主各 provider 用 parseStreamingJson 填充，畸形 JSON 下不保证可序列化；
+ *  估算失败必须退回 0，而不是把宿主无 try/catch 的渲染循环打穿。 */
+function safeStringify(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * 流式期间的输出 token 估算：CJK/韩文音节/注音 ≈1 tok/字，其余 ≈4 字符/tok。
  * 只用于实时速率的 ≈ 前缀读数；精确值一律由 message_end 的 usage 收口。
- * 不折算 toolCall 参数：公开类型只有 arguments: Record，流式中间态靠内部字段填充，
- * 读它就是镜像会随 pi 版本漂移的形状。
+ * toolCall 参数计入：实测占 agentic 会话可估输出的一半以上，漏掉它会让最常见的
+ * 工具型回合整段流式没有读数。只读公开类型字段 arguments（宿主在流式期间用
+ * parseStreamingJson 渐进填充，实测全程非空且单调增长），provider 私有的
+ * partialJson/partialArgs 一律不碰——那才是会随版本漂移的形状。
  */
 export function estimateOutputTokens(
-  content: readonly { type: string; text?: string; thinking?: string }[] | undefined,
+  content: readonly { type: string; text?: string; thinking?: string; arguments?: unknown }[] | undefined,
 ): number {
   if (!content) return 0;
   let cjk = 0;
   let total = 0;
   for (const block of content) {
-    const text = block.type === "text" ? block.text : block.type === "thinking" ? block.thinking : undefined;
+    const text =
+      block.type === "text" ? block.text
+      : block.type === "thinking" ? block.thinking
+      : block.type === "toolCall" ? safeStringify(block.arguments)
+      : undefined;
     if (!text) continue;
     total += text.length;
     // 码元级区间比较而非逐字符正则调用：热路径（每个 chunk 事件全量扫描）下开销更低；

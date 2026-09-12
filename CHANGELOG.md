@@ -2,6 +2,22 @@
 
 仅记录用户可感知的主要变化。 / Major user-visible changes only.
 
+## Unreleased
+
+- **速率 / Rate**：纯工具调用回合（write/edit 参数流式生成，正文为空）此前整段没有任何实时读数；`≈+N` 与实时速率现在同样估算 toolCall 参数。 / Tool-call-only turns (streaming write/edit arguments with no prose) previously showed no live reading at all; `≈+N` and the live rate now estimate tool-call arguments as well.
+- **时长 / Duration**：`◷` 收敛为 agent 工作时长——人类思考/离开的间隔不再计入（旧口径每段截 2 分钟，多段累加虚增）；真实工作段计满，不再被 2 分钟上限砍掉（实测最长 7.2 分钟的单次生成此前被截成 2 分钟），单段封顶 10 分钟只防病态跳变。流式期间 `◷` 逐帧前进，响应结束由条目原地接管、不跳格。 / `◷` is now agent work time: human gaps no longer count (the old 2-min-per-gap cap inflated them); genuine work gaps count in full (a measured 7.2-min generation was previously cut to 2m), capped at 10 min against pathological jumps only. While streaming, `◷` advances frame by frame and is handed over by the landed entry without jumping.
+- **指标 / Metrics**：命中率括号自带口径标签（上轮 / last），不再让单次口径的百分比紧挨生涯累计量误导读数。 / The cache reuse parenthetical carries its own scope label (上轮 / last) instead of sitting ambiguous next to the lifetime total.
+- **外观 / Glyphs**：`o1`/`o3` 不再作为模型名裸子串匹配——`solar-o1`、`ernie-4.5-o1-preview` 等第三方模型不再被误标成 OpenAI 图标；真正的 o 系列仍按 provider 识别。 / `o1`/`o3` no longer match model names as bare substrings — third-party models like `solar-o1` or `ernie-4.5-o1-preview` stop rendering with the OpenAI glyph; genuine o-series still match by provider.
+- **命令 / Commands**：新增 `/footer` 短别名，与 `/signal-footer` 完全对等。 / Added `/footer` short alias, equivalent to `/signal-footer`.
+- **外观 / Theme**：新增 `/footer theme` 在经典版（classic，默认极简单色 Unicode）与多彩表情版（vivid，全彩 Emoji 图标、模型家族形象、模块协调浅色系数值）之间切换并持久化（省略参数即切换）。 / Added `/footer theme` to toggle and persist between classic (default minimalist monochrome Unicode) and vivid (colorful emoji icons, model family glyphs, coordinated soft light pastel metric numbers).
+- **速率 / Rate**：流式暂停期间（无新 chunk）不再显示被拉伸窗口稀释的假衰减读数，回退全程平均。 / While stalled without new chunks, the live rate no longer decays through a stretched window and falls back to the whole-response average.
+- **指标 / Metrics**：assistant 请求完全不报输入维度（未缓存输入与缓存读写全零）时不再把命中率误报为 0.00%，保留上一轮读数；真实 miss 轮仍显示 0.00%。 / An assistant request reporting no input dimensions at all no longer fakes a 0.00% cache ratio (the previous reading is kept); genuine miss turns still show 0.00%.
+- **性能 / Performance**：footer 关闭时不再处理流式事件，省去每个 chunk 的输出估算扫描。 / With the footer disabled, streaming events are no longer processed, skipping the per-chunk output estimate scan.
+
+- **指标 / Metrics**：缓存复用率跟随最近一次 assistant 请求；该请求完全未走缓存时显示 0.00%，不再残留上一轮的高命中率。 / The cache reuse ratio now tracks the latest assistant request; a request with no cache activity shows 0.00% instead of a stale high ratio.
+- **速率 / Rate**：流式实时读数改为 1.5 秒滑动窗口，速率变化（加速/减速/暂停恢复）能在约半秒内反映，不再被全程平均拖尾；`≈` 前缀与结束定格逻辑不变。 / The live rate now uses a 1.5-second sliding window, so speed changes surface within ~0.5s instead of being diluted by the whole-response average; `≈` prefix and the exact end-of-response freeze are unchanged.
+- **输出 / Output**：流式期间 `↑` 追加 `≈+N` 在途输出估算，与实时速率同源、随响应结束归位为精确累计；长回复不再出现"速率在动、↑ 不动"的脱节。 / `↑` now carries an `≈+N` in-flight output estimate while streaming, sharing the rate's live signal and collapsing into the exact total on completion; a long response no longer shows a ticking rate next to a frozen ↑.
+
 ## 0.5.0
 
 - **指标 / Metrics**：缓存复用率精确到两位小数（如 97.35%），不再四舍五入到整数；输入是 provider 精确计数，小数位无伪精度。 / Cache reuse now shows two decimals (e.g. 97.35%) instead of rounding to an integer; the inputs are exact provider counts, so the digits are real.

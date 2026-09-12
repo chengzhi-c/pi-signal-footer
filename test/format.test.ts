@@ -157,6 +157,9 @@ test("automatically identifies model families by model ID", () => {
   assert.equal(getModelIcon("claude-3-7-sonnet", "openrouter"), "✻");
   assert.equal(getModelIcon("gpt-4o-mini", "relay"), "⬢");
   assert.equal(getModelIcon("o3-mini", "openai"), "⬢");
+  // 短代号 o1/o3 不作为裸子串匹配模型名：别人的 solar-o1 / ernie-4.5-o1-preview 会被误判成 OpenAI
+  assert.notEqual(getModelIcon("solar-o1", "upstage"), "⬢");
+  assert.notEqual(getModelIcon("ernie-4.5-o1-preview", "baidu"), "⬢");
   assert.equal(getModelIcon("deepseek-r1", "local"), "◎");
   assert.equal(getModelIcon("qwen-2.5-coder", "aliyun"), "𝐐");
   assert.equal(getModelIcon("llama-3.3-70b", "ollama"), "𝕃");
@@ -168,9 +171,24 @@ test("automatically identifies model families by model ID", () => {
   assert.equal(getModelIcon("unknown-model", "01-ai"), "①");
   assert.equal(getModelIcon("minimax-abab6.5", ""), "⬡");
   assert.equal(getModelIcon("abab6.5s-chat", "custom"), "⬡");
+  assert.equal(getModelIcon("command-r-plus", "cohere"), "𝐂");
+  assert.equal(getModelIcon("phi-4", "microsoft"), "Φ");
+  assert.equal(getModelIcon("sonar-pro", "perplexity"), "✳");
+  assert.equal(getModelIcon("baichuan-turbo", "baichuan"), "𝐁");
+  assert.equal(getModelIcon("step-2-16k", "stepfun"), "𝐒");
+  assert.equal(getModelIcon("hunyuan-standard", "tencent"), "𝐇");
   assert.equal(getModelIcon("some-model", "local"), "⌂");
   assert.equal(getModelIcon("local-weights", "custom"), "⌂");
   assert.equal(getModelIcon("unknown-model", "custom"), "◈");
+
+  // Vivid theme returns expressive emojis
+  assert.equal(getModelIcon("glm-5.3-flash", "custom-relay", "vivid"), "💡");
+  assert.equal(getModelIcon("deepseek-r1", "local", "vivid"), "🐳");
+  assert.equal(getModelIcon("gpt-4o", "openai", "vivid"), "🤖");
+  assert.equal(getModelIcon("claude-3-7-sonnet", "anthropic", "vivid"), "🎭");
+  assert.equal(getModelIcon("gemini-2.0-flash", "google", "vivid"), "✨");
+  assert.equal(getModelIcon("kimi-latest", "moonshot", "vivid"), "🌙");
+  assert.equal(getModelIcon("unknown-model", "custom", "vivid"), "🤖");
 });
 
 test("clamps an out-of-range context percentage instead of trusting it", () => {
@@ -334,7 +352,7 @@ test("estimateOutputTokens counts CJK per char and other text per four chars", (
   // 韩文音节与注音按 1 tok/字计（主流 tokenizer 口径），不落入 /4 档
   assert.equal(estimateOutputTokens([{ type: "text", text: "한".repeat(1000) }]), 1000);
   assert.equal(estimateOutputTokens([{ type: "text", text: "ㄅ".repeat(1000) }]), 1000);
-  // 多块累加；redacted thinking（空串）与 toolCall 不计
+  // 多块累加；redacted thinking（空串）与无 arguments 的 toolCall 计 0
   assert.equal(
     estimateOutputTokens([
       { type: "text", text: "abcd" },

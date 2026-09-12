@@ -18,9 +18,17 @@ export function isFooterLocale(value: unknown): value is FooterLocale {
   return typeof value === "string" && (FOOTER_LOCALES as readonly string[]).includes(value);
 }
 
+export const FOOTER_THEMES = ["classic", "vivid"] as const;
+export type FooterTheme = (typeof FOOTER_THEMES)[number];
+
+export function isFooterTheme(value: unknown): value is FooterTheme {
+  return typeof value === "string" && (FOOTER_THEMES as readonly string[]).includes(value);
+}
+
 export type FooterSettings = {
   enabled: boolean;
   locale: FooterLocale;
+  theme: FooterTheme;
   showProject: boolean;
   showSessionName: boolean;
   showDuration: boolean;
@@ -33,6 +41,7 @@ export type FooterSettings = {
 export const DEFAULT_SETTINGS: Readonly<FooterSettings> = Object.freeze({
   enabled: true,
   locale: "auto",
+  theme: "classic",
   showProject: true,
   showSessionName: true,
   showDuration: true,
@@ -42,7 +51,7 @@ export const DEFAULT_SETTINGS: Readonly<FooterSettings> = Object.freeze({
   showCacheRatio: true,
 });
 
-export type ShowKey = Exclude<keyof FooterSettings, "enabled" | "locale">;
+export type ShowKey = Exclude<keyof FooterSettings, "enabled" | "locale" | "theme">;
 
 export const SHOW_TOKENS = {
   showProject: "path",
@@ -58,7 +67,7 @@ export const SHOW_KEYS = Object.keys(SHOW_TOKENS) as ShowKey[];
 export const SHOW_ITEM_TOKENS = Object.values(SHOW_TOKENS).join("|");
 
 // 命令面清单：帮助文案与插值测试的共同来源，新增子命令必须同步 handler 分支。
-export const FOOTER_SUBCOMMANDS = ["legend", "hide", "help", "off", "on", "status", "locale"] as const;
+export const FOOTER_SUBCOMMANDS = ["legend", "hide", "help", "off", "on", "status", "locale", "theme"] as const;
 export const FOOTER_SUBCOMMAND_TOKENS = FOOTER_SUBCOMMANDS.join("|");
 
 export type SettingsParseResult = {
@@ -97,6 +106,11 @@ export function parseSettings(raw: unknown): SettingsParseResult {
   if (Object.hasOwn(raw, "locale")) {
     if (isFooterLocale(raw.locale)) settings.locale = raw.locale;
     else invalidKeys.push("locale");
+  }
+
+  if (Object.hasOwn(raw, "theme")) {
+    if (isFooterTheme(raw.theme)) settings.theme = raw.theme;
+    else invalidKeys.push("theme");
   }
 
   return { settings, invalidKeys };

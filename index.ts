@@ -11,6 +11,7 @@ import {
   FOOTER_SUBCOMMAND_TOKENS,
   SETTINGS_FILE,
   isFooterLocale,
+  isFooterTheme,
   loadSettings,
   saveSettings,
   SHOW_ITEM_TOKENS,
@@ -20,7 +21,8 @@ import {
   type ShowKey,
 } from "./settings.ts";
 
-import { handleStream, installFooter, resetStreamState } from "./footer.ts";
+import { installFooter } from "./footer.ts";
+import { handleStream, resetStreamState } from "./stream.ts";
 
 import {
   copyFor,
@@ -144,6 +146,9 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     }
   };
 
+  // 不变量：settings 一旦变化必须经此重装（persist 后成对调用，见各 handler 分支）。
+  // installFooter 的渲染闭包捕获传入的 settings 对象，不重装就会让 footer 读到旧值；
+  // 重装无泄漏——宿主 setExtensionFooter 会先 dispose 旧组件（interactive-mode.js）。
   const applyFooterSetting = (ctx: ExtensionContext, next: FooterSettings): void => {
     if (next.enabled) {
       installConfiguredFooter(ctx, next);
@@ -153,10 +158,20 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     clearConfiguredFooter(ctx);
   };
 
+  // footer 未启用（含宿主过旧）时不追踪流式事件：每 chunk 的全量估算扫描纯属浪费；
+  // 中途 on 后由下个 message_start 重建状态，无需补追。
+  const shouldTrackStream = (): boolean => footerSupported && settings.enabled;
+
   return (pi: ExtensionAPI): void => {
-    pi.on("message_start", (event, ctx) => handleStream("start", event.message, Date.now(), ctx.sessionManager));
-    pi.on("message_update", (event, ctx) => handleStream("update", event.message, Date.now(), ctx.sessionManager));
-    pi.on("message_end", (event, ctx) => handleStream("end", event.message, Date.now(), ctx.sessionManager));
+    pi.on("message_start", (event, ctx) => {
+      if (shouldTrackStream()) handleStream("start", event.message, Date.now(), ctx.sessionManager);
+    });
+    pi.on("message_update", (event, ctx) => {
+      if (shouldTrackStream()) handleStream("update", event.message, Date.now(), ctx.sessionManager);
+    });
+    pi.on("message_end", (event, ctx) => {
+      if (shouldTrackStream()) handleStream("end", event.message, Date.now(), ctx.sessionManager);
+    });
 
     // session_start 覆盖会话替换和 reload。enabled=false 时不装 footer，使 off 能活过 reload。
     pi.on("session_start", async (_event, ctx) => {
@@ -175,9 +190,9 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
       clearConfiguredFooter(ctx);
     });
 
-    pi.registerCommand("signal-footer", {
+    const footerCommand = {
       description: "Show the status legend or toggle the readable footer (off/on persist)",
-      handler: async (args, ctx) => {
+      handler: async (args: string, ctx: ExtensionContext) => {
         if (!footerSupported) {
           warnUnsupportedHost(ctx);
           return;
@@ -222,6 +237,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
               + " | " + text.status.enabled(text.status.value(current.enabled))
               + " | " + items
               + " | " + text.status.locale(resolveLocale(current.locale))
+              + " | " + text.status.theme(current.theme)
               + " | " + text.status.error(error)
               + " | " + text.status.invalid(invalid),
             "info",
@@ -241,6 +257,20 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           applyFooterSetting(ctx, next);
           if (wasLegendVisible) showLegend(ctx, resolveLocale(next.locale));
           ctx.ui.notify(copyFor(resolveLocale(next.locale)).localeChanged(resolveLocale(next.locale)), "info");
+          return;
+        }
+
+        if (action === "theme") {
+          const raw = parts[1]?.toLowerCase();
+          if (raw !== undefined && !isFooterTheme(raw)) {
+            ctx.ui.notify(text.themeUsage, "warning");
+            return;
+          }
+          const nextTheme = raw ?? (current.theme === "vivid" ? "classic" : "vivid");
+          const next = { ...current, theme: nextTheme };
+          if (!persist(ctx, next)) return;
+          applyFooterSetting(ctx, next);
+          ctx.ui.notify(text.themeChanged(next.theme), "info");
           return;
         }
 
@@ -264,7 +294,10 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
 
         ctx.ui.notify(text.usage(FOOTER_SUBCOMMAND_TOKENS, SHOW_ITEM_TOKENS), "warning");
       },
-    });
+    };
+
+    pi.registerCommand("signal-footer", footerCommand);
+    pi.registerCommand("footer", footerCommand);
   };
 }
 

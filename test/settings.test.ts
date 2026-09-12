@@ -66,6 +66,16 @@ test("reports invalid known fields while preserving valid fields and ignoring un
   assert.deepEqual(result.invalidKeys, ["enabled", "locale"]);
 });
 
+test("theme accepts classic and vivid, rejects unknown styles", () => {
+  assert.equal(parseSettings({}).settings.theme, "classic", "missing theme falls back to the default");
+  assert.equal(parseSettings({ theme: "vivid" }).settings.theme, "vivid");
+  assert.equal(parseSettings({ theme: "classic" }).settings.theme, "classic");
+
+  const invalid = parseSettings({ theme: "neon" });
+  assert.equal(invalid.settings.theme, "classic");
+  assert.deepEqual(invalid.invalidKeys, ["theme"]);
+});
+
 test("distinguishes missing, invalid JSON, semantic errors, and unreadable settings", () => {
   const missing = loadSettings(tempDir());
   assert.deepEqual(missing.settings, { ...DEFAULT_SETTINGS });

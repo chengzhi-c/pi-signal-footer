@@ -6,12 +6,14 @@ A status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono)
 
 ```text
 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main   ⎔ 12% [━━─────────────────] 36k/300k
-↓ 213 ↑ 32k │ ↻ 5.1M (97.35%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1 turn · 45 tok/s                                          ⇄ MCP 1/1 · LSP typescript
+↓ 213 ↑ 32k │ ↻ 5.1M (last 97.35%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1 turn · 45 tok/s                                          ⇄ MCP 1/1 · LSP typescript
 ```
 
 Requires Pi Coding Agent >=0.84.4. Older hosts keep the native footer.
 
-The `≈` prefix marks the live rate estimate shown while a response streams (providers only report exact output tokens at the end); the frozen value after completion is exact.
+The `≈` marks estimates: the live rate while a response streams, and the `≈+N` suffix on ↑ output (the estimate covers text, thinking and tool-call arguments; providers only report exact tokens at the end — both freeze/absorb into exact values on completion). Turn count = user messages billed in this session file, including steered messages and branches abandoned via `/tree` or `/fork` (their tokens were really spent, and totals use the same all-entries basis).
+
+`◷` is agent work time: gaps where a human was thinking or away are not counted; a single work gap caps at 10 minutes — if `/compact`, `resume` or `/tree` navigation hands work straight to a command-triggered entry, its preceding idle counts at most 10 minutes. The `↻` total is lifetime across all branches while the parenthesized reuse rate belongs to the **last** request only; the context bar on the same line is the current-branch view.
 
 ## Install
 
@@ -35,6 +37,7 @@ Settings are stored in `pi-signal-footer.json` under Pi's agent directory (usual
 {
   "enabled": true,
   "locale": "auto",
+  "theme": "classic",
   "showProject": true,
   "showSessionName": true,
   "showDuration": true,
@@ -45,28 +48,32 @@ Settings are stored in `pi-signal-footer.json` under Pi's agent directory (usual
 }
 ```
 
-`locale` is `auto`, `zh`, or `en`. Commands below write this file.
+`locale` is `auto`, `zh`, or `en`. `theme` picks the appearance style: `classic` (default, minimalist monochrome Unicode) or `vivid` (colorful emoji dashboard: using 📁, 📥, 📤, 🔄, 📝, 🪙, 📊, 🔀, 🧠, ⏳, 💬, 🚀, 🔌, 🛠️, with model family emojis and coordinated light-toned metric numbers). Commands below write this file.
 
 ## Commands
 
+Supports `/signal-footer` and the short alias `/footer`:
+
 ```text
-/signal-footer legend              show the metric legend
-/signal-footer hide                hide the legend (this session)
-/signal-footer help                show every command
-/signal-footer off                 restore the native footer
-/signal-footer on                  enable this footer
-/signal-footer path [on|off]       show/hide the project path
-/signal-footer session [on|off]    show/hide the session name
-/signal-footer time [on|off]       show/hide the session duration
-/signal-footer turns [on|off]      show/hide the turn count
-/signal-footer speed [on|off]      show/hide the response rate
-/signal-footer branch [on|off]     show/hide the git branch
-/signal-footer cache [on|off]      show/hide the cache hit ratio
-/signal-footer status              show the current settings
-/signal-footer locale auto|zh|en   set the UI language
+/footer legend              show the metric legend
+/footer hide                hide the legend (this session)
+/footer help                show every command
+/footer off                 restore the native footer
+/footer on                  enable this footer
+/footer path [on|off]       show/hide the project path
+/footer session [on|off]    show/hide the session name
+/footer time [on|off]       show/hide the session duration
+/footer turns [on|off]      show/hide the turn count
+/footer speed [on|off]      show/hide the response rate
+/footer branch [on|off]     show/hide the git branch
+/footer cache [on|off]      show/hide the cache hit ratio
+/footer status              show the current settings
+/footer locale auto|zh|en   set the UI language
+/footer theme [vivid|classic]
+                            switch theme (omit to toggle between classic and vivid)
 ```
 
-Omit `on|off` on an item command to toggle it. `off` and `on` persist across sessions.
+Omit `on|off` on an item command to toggle it. `off` and `on` persist across sessions. `/signal-footer` and `/footer` work identically.
 
 ## License
 

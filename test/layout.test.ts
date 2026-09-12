@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { legendLines } from "../format.ts";
+import { copyFor, legendLines } from "../format.ts";
 import { installFooter } from "../footer.ts";
 import { DEFAULT_SETTINGS, type FooterSettings } from "../settings.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -81,12 +81,13 @@ test("renders unknown token counts without losing a known percentage", async () 
   assert.match(output, /\?\/1\.0k/);
 });
 
-test("computes session duration from the earliest and latest entry timestamps", async () => {
+test("computes session duration from entry timestamps with capped idle gaps", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
-    { type: "message", timestamp: "2026-01-01T00:02:00.000Z", message: { role: "assistant" } },
-    { type: "message", timestamp: "2026-01-01T00:01:00.000Z", message: { role: "user" } },
+    // 条目按写入顺序遍历：相隔 1 分钟的间隔正常计入
+    { type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user" } },
+    { type: "message", timestamp: "2026-01-01T00:01:00.000Z", message: { role: "assistant" } },
   );
   await startSession(handlers, context);
 
@@ -150,7 +151,8 @@ test("ignores malformed usage without poisoning later valid totals", async () =>
 });
 
 test("accumulates assistant, tool, and summary usage exactly once", async () => {
-  const { handlers } = createApi();
+  const { handlers, agentDir } = createApi();
+  pinLocale(agentDir, "en"); // 命中率括号带 locale 相关的 scope 标签
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
     {
@@ -176,13 +178,14 @@ test("accumulates assistant, tool, and summary usage exactly once", async () => 
 
   assert.match(output, /↓ 100/);
   assert.match(output, /↑ 15/);
-  assert.match(output, /↻ 200 \(57\.14%\)/);
+  assert.match(output, /↻ 200 \(last 57\.14%\)/);
   assert.match(output, /✎ 50/);
   assert.match(output, /\$0\.190/);
 });
 
 test("shows the reuse rate of the latest cache-active request", async () => {
-  const { handlers } = createApi();
+  const { handlers, agentDir } = createApi();
+  pinLocale(agentDir, "en"); // 命中率括号带 locale 相关的 scope 标签
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   // 单次请求 900÷(10+900+0)=98.90%；生涯累计 900÷(10+900+100)=89.11%，括号里必须是前者
   context.entries.push({
@@ -193,11 +196,25 @@ test("shows the reuse rate of the latest cache-active request", async () => {
   await startSession(handlers, context);
   const output = renderLines(context, 160).join("\n");
 
-  assert.match(output, /↻ 900 \(98\.90%\)/);
+  assert.match(output, /↻ 900 \(last 98\.90%\)/);
 });
 
+test("cache ratio scope label renders in Chinese under zh locale", async () => {
+  // 与英文用例对偶：锁住两种语言的 scope 标签都渲染到位，而不是只钉英文
+  const { handlers, agentDir } = createApi();
+  pinLocale(agentDir, "zh");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.entries.push({
+    type: "message",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    message: { role: "assistant", usage: { input: 10, output: 5, cacheRead: 900, cacheWrite: 0, cost: { total: 0.01 } } },
+  });
+  await startSession(handlers, context);
+  assert.match(renderLines(context, 160).join("\n"), /↻ 900 \(上轮 98\.90%\)/);
+});
 test("rates the latest cache-active request instead of lifetime totals", async () => {
-  const { handlers } = createApi();
+  const { handlers, agentDir } = createApi();
+  pinLocale(agentDir, "en"); // 命中率括号带 locale 相关的 scope 标签
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
     {
@@ -215,13 +232,14 @@ test("rates the latest cache-active request instead of lifetime totals", async (
   const output = renderLines(context, 160).join("\n");
 
   // 总量是生涯的（↻ 900），括号率是最近一次的 98.90%，不是生涯 84.91%
-  assert.match(output, /↻ 900 \(98\.90%\)/);
+  assert.match(output, /↻ 900 \(last 98\.90%\)/);
   // 两位口径下生涯值渲染为 84.91%，防护必须盯住新串而非旧的 85%
   assert.doesNotMatch(output, /84\.91%/);
 });
 
 test("shows 0% when cache was only written, never read", async () => {
-  const { handlers } = createApi();
+  const { handlers, agentDir } = createApi();
+  pinLocale(agentDir, "en"); // 命中率括号带 locale 相关的 scope 标签
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push({
     type: "message",
@@ -231,7 +249,7 @@ test("shows 0% when cache was only written, never read", async () => {
   await startSession(handlers, context);
   const output = renderLines(context, 160).join("\n");
 
-  assert.match(output, /↻ 0 \(0\.00%\)/);
+  assert.match(output, /↻ 0 \(last 0\.00%\)/);
 });
 
 test("sacrifices footer fields in the order the legend advertises", async () => {
@@ -485,5 +503,117 @@ test("keeps our own stats intact and truncates third-party statuses when line 2 
   assert.match(line2, /↓ 100/);
   assert.match(line2, /\$0\.500/);
   assert.match(line2, /\.\.\./, "the status block is the side that gives");
+});
+
+
+// ===== R7-P70 文档诚实性闸门：图例承诺必须与实现同源，防分头漂移 =====
+
+test("cache ratio scope label in the footer comes from the same copy key as the legend", async () => {
+  // footer 渲染与图例解释必须引用同一个 ratioScope；只改一处即红
+  for (const locale of ["en", "zh"] as const) {
+    const scope = copyFor(locale).ratioScope;
+    assert.ok(legendLines(locale).join(" ").includes(scope), `legend must explain the ${locale} scope label`);
+    const { handlers, agentDir } = createApi();
+    pinLocale(agentDir, locale);
+    const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+    context.entries.push({
+      type: "message",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      message: { role: "assistant", usage: { input: 10, output: 5, cacheRead: 900, cacheWrite: 0, cost: { total: 0.01 } } },
+    });
+    await startSession(handlers, context);
+    assert.ok(renderLines(context, 160).join("\n").includes(scope), `footer must render the ${locale} scope label`);
+  }
+});
+
+test("legend never advertises the retired two-minute idle cap", () => {
+  // 旧语义"闲置超 2 分钟按 2 分钟计"已被角色化 gap 记账取代；
+  // 若 P69 回滚而文案不回滚（或反之），这条立刻变红逼两者回到同一状态
+  for (const locale of ["zh", "en"] as const) {
+    const guide = legendLines(locale).join(" ");
+    assert.ok(!guide.includes("闲置超 2 分钟"), `${locale} legend still promises the 2-min idle cap`);
+    assert.ok(!guide.includes("idle beyond 2 min"), `${locale} legend still promises the 2-min idle cap`);
+    assert.ok(guide.includes("不计") || guide.includes("excluded"), `${locale} legend must state human gaps are excluded`);
+  }
+});
+
+test("legend credits tool-call arguments inside the in-flight estimate", () => {
+  // P69-D1 把工具调用参数纳入 ≈+ 估算：图例若不提"工具"，就是在低报覆盖面
+  for (const locale of ["zh", "en"] as const) {
+    const guide = legendLines(locale).join(" ").toLowerCase();
+    assert.ok(guide.includes("工具") || guide.includes("tool"),
+      `${locale} legend must mention tool-call arguments in the ≈+ estimate`);
+  }
+});
+
+test("vivid palette repaints stat groups while classic stays neutral", () => {
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: "MCP 1/1" });
+  context.entries.push({
+    type: "message",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    message: { role: "assistant", usage: { input: 10, output: 50, cacheRead: 900, cacheWrite: 100, cost: { total: 0.01 } } },
+  });
+
+  // 记录型 theme：捕捉每个文本首次上色用的 token 与加粗集合，直接断言色板接线
+  const makeRecorder = () => {
+    const colors = new Map<string, string>();
+    const bolds = new Set<string>();
+    const theme = {
+      fg: (color: string, text: string) => {
+        if (!colors.has(text)) colors.set(text, color);
+        return text;
+      },
+      bold: (text: string) => {
+        bolds.add(text);
+        return text;
+      },
+      getThinkingBorderColor: () => (text: string) => text,
+    };
+    return { theme, colors, bolds };
+  };
+  const render = (): ReturnType<typeof makeRecorder> => {
+    const run = makeRecorder();
+    renderLines(context, 160, run.theme).join("\n");
+    return run;
+  };
+
+  installFooter(
+    context.ctx as unknown as Parameters<typeof installFooter>[0],
+    { ...DEFAULT_SETTINGS, locale: "en" },
+    () => 0,
+  );
+  const classic = render();
+  assert.equal(classic.colors.get("↓"), "muted");
+  assert.equal(classic.colors.get("↻"), "muted");
+  assert.equal(classic.colors.get("⎔"), "muted");
+  assert.equal(classic.colors.get(" │ "), "muted");
+  assert.equal(classic.colors.get("0%"), "accent");
+  assert.equal(classic.colors.get("1/1"), "text");
+  assert.ok(!classic.bolds.has("10") && !classic.bolds.has("$0.010"), "classic never bolds stat values");
+
+  installFooter(
+    context.ctx as unknown as Parameters<typeof installFooter>[0],
+    { ...DEFAULT_SETTINGS, locale: "en", theme: "vivid" },
+    () => 0,
+  );
+  const vivid = render();
+  assert.equal(vivid.colors.get("📥"), "borderAccent", "input icon takes the cyan hue");
+  assert.equal(vivid.colors.get("📤"), "borderAccent", "output icon takes the cyan hue");
+  assert.equal(vivid.colors.get("🔄"), "success", "cache reads take the green hue");
+  assert.equal(vivid.colors.get("📝"), "success", "cache write icon joins the read hue");
+  assert.equal(vivid.colors.get(" (last 89.11%)"), "muted", "cache ratio takes soft muted tone");
+  assert.equal(vivid.colors.get("📊"), "accent", "context icon takes soft accent");
+  assert.equal(vivid.colors.get(" │ "), "dim", "skeleton separators recede cleanly");
+  assert.equal(vivid.colors.get("⏳"), "accent");
+  assert.equal(vivid.colors.get("0%"), "accent", "healthy context takes the soft sage teal accent");
+  assert.equal(vivid.colors.get("1/1"), "success", "fully connected MCP takes the success hue");
+  assert.equal(vivid.colors.get("🪙 0.010"), "syntaxFunction", "cost takes soft warm pastel");
+  assert.equal(vivid.colors.get("10"), "syntaxVariable", "input quantity takes light pastel blue");
+  assert.equal(vivid.colors.get("50"), "syntaxVariable", "output quantity takes light pastel blue");
+  assert.equal(vivid.colors.get("900"), "syntaxNumber", "cache read quantity takes light pastel green");
+  assert.ok(!vivid.bolds.has("10") && !vivid.bolds.has("50") && !vivid.bolds.has("900"), "numbers stay clean and regular");
+  assert.ok(!vivid.bolds.has("🪙 0.010"), "cost stays clean and regular");
+  assert.ok(!vivid.bolds.has("100"), "cache write value stays clean and regular");
+  assert.ok(!vivid.bolds.has("0m"), "metadata like duration stays regular");
 });
 

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { handleStream } from "../footer.ts";
+import { handleStream } from "../stream.ts";
 import { loadSettings, SETTINGS_FILE } from "../settings.ts";
 
 import {
@@ -161,7 +161,9 @@ test("showBranch and showTurns toggles take effect", async () => {
 });
 
 test("showDuration, showSpeed and showCacheRatio toggles take effect", async () => {
-  const { handlers, commands } = createApi();
+  const { handlers, commands, agentDir } = createApi();
+  // 命中率括号带 locale 相关的 scope 标签，钉死英文避免随机器语言漂移
+  pinLocale(agentDir, "en");
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
     { type: "message", timestamp: "2026-01-01T00:01:00.000Z", message: { role: "user" } },
@@ -180,7 +182,7 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
 
   const all = renderLines(context, 160).join("\n");
   assert.match(all, /◷ 1m/);
-  assert.match(all, /↻ 900 \(89\.11%\)/);
+  assert.match(all, /↻ 900 \(last 89\.11%\)/);
   assert.match(all, /50 tok\/s/);
 
   await setField(commands, context.ctx, "time", "off");
@@ -342,4 +344,50 @@ test("does not claim success or change the footer when settings cannot be writte
   assert.equal(readFileSync(agentDir, "utf8"), "original");
   assert.equal(context.notifications.at(-1)?.level, "error");
   assert.doesNotMatch(context.notifications.map((item) => item.message).join("\n"), /已关闭|disabled/);
+});
+
+test("theme command toggles and persists the palette", async () => {
+  const agentDir = tempAgentDir();
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const command = commands.get("signal-footer")!;
+
+  await startSession(handlers, context);
+  await command("theme", context.ctx);
+  assert.match(context.notifications.at(-1)?.message ?? "", /vivid/);
+  assert.equal(loadSettings(agentDir).settings.theme, "vivid");
+
+  await command("theme", context.ctx);
+  assert.match(context.notifications.at(-1)?.message ?? "", /classic/);
+  assert.equal(loadSettings(agentDir).settings.theme, "classic", "bare theme toggles back");
+
+  await command("theme vivid", context.ctx);
+  assert.equal(loadSettings(agentDir).settings.theme, "vivid", "explicit style is accepted");
+});
+
+test("theme command rejects unknown styles without touching settings", async () => {
+  const agentDir = tempAgentDir();
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const command = commands.get("signal-footer")!;
+
+  await startSession(handlers, context);
+  await command("theme neon", context.ctx);
+
+  assert.equal(context.notifications.at(-1)?.level, "warning");
+  assert.match(context.notifications.at(-1)?.message ?? "", /classic\|vivid/);
+  assert.equal(loadSettings(agentDir).settings.theme, "classic");
+});
+
+test("status reports the active theme", async () => {
+  const agentDir = tempAgentDir();
+  pinLocale(agentDir, "en");
+  const { handlers, commands } = createApi(agentDir);
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+
+  await startSession(handlers, context);
+  await commands.get("signal-footer")!("theme vivid", context.ctx);
+  await commands.get("signal-footer")!("status", context.ctx);
+
+  assert.match(context.notifications.at(-1)?.message ?? "", /theme: vivid/);
 });
