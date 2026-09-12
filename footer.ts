@@ -451,11 +451,11 @@ function renderFooter(
   const palette = PALETTES[settings.theme];
   const view: StatsView = {
     ...derived,
-    // 在途工作时长并入活跃口径：响应期间 ◷ 逐帧前进，落盘后同段墙钟由条目接管。
+    // 在途工作时长并入活跃口径：LLM 流式与工具执行期间 ◷ 逐帧前进，落盘后同段墙钟由条目接管。
     session: {
       ...derived.session,
       activeMs: derived.session.activeMs
-        + inFlightWorkMs(ctx.sessionManager, derived.session.lastTs, now),
+        + inFlightWorkMs(ctx.sessionManager, derived.session.lastTs, now, !ctx.isIdle()),
     },
     settings,
     locale,

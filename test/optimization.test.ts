@@ -8,7 +8,7 @@ import { DEFAULT_SETTINGS } from "../settings.ts";
 
 import { createApi, createContext, openFooter, pinLocale, renderLines, startSession, type Harness } from "./harness.ts";
 
-// ===== A1：时长改为活跃口径（闲置超 2 分钟按 2 分钟计入）=====
+// ===== A1：时长按后继条目角色记账（人类间隔不计，工作计满）=====
 
 type TimedEntry = string | { ts: string; role: string };
 
@@ -476,7 +476,6 @@ test("T6: the active duration advances while a response streams", () => {
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(750 * i) }] }, futureBase + i * 10_000, fx.session);
   }
   fx.setNow(futureBase + 50_000);
-  // 基线行为：整段流式期间 ◷ 恒为 0m
   assert.equal(timeOf(fx.context), "50s");
 });
 
@@ -490,11 +489,62 @@ test("T7: the duration does not jump when the streamed entry lands", () => {
   fx.setNow(futureBase + 120_000);
   const before = timeOf(fx.context);
   const usage = { input: 50, output: 9000, cacheRead: 20000, cacheWrite: 200, cost: { total: 0.3 } };
-  handleStream("end", { role: "assistant", usage }, futureBase + 121_000, fx.session);
-  fx.context.entries.push({ type: "message", timestamp: fx.stamp(121_000), message: { role: "assistant", usage } });
-  fx.setNow(futureBase + 121_000);
+  handleStream("end", { role: "assistant", usage }, futureBase + 120_000, fx.session);
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(120_000), message: { role: "assistant", usage } });
+  fx.setNow(futureBase + 120_000);
   const after = timeOf(fx.context);
   assert.equal(before, "2m");
   assert.equal(after, "2m"); // 同一段墙钟由条目原地接管：跳变 0ms
+});
+
+// T10/T11/T12：message_end 清 timing 之后，工具执行期靠 ctx.isIdle()===false 继续走刻度
+function landAssistant(fx: ReturnType<typeof liveClockFixture>, offset: number): void {
+  const usage = { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, cost: { total: 0.01 } };
+  handleStream("end", { role: "assistant", usage }, futureBase + offset, fx.session);
+  fx.context.entries.push({
+    type: "message",
+    timestamp: fx.stamp(offset),
+    message: { role: "assistant", usage },
+  });
+  fx.setNow(futureBase + offset);
+}
+
+test("T10: duration keeps advancing during a post-stream tool run", () => {
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  handleStream("start", { role: "assistant" }, futureBase, fx.session);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "abcd" }] }, futureBase + 10_000, fx.session);
+  landAssistant(fx, 10_000);
+  fx.context.ctx.isIdle = () => false;
+  fx.setNow(futureBase + 40_000);
+  // 修复前 timing 已空，读数冻在 assistant 落盘的 10s
+  assert.equal(timeOf(fx.context), "40s");
+});
+
+test("T11: idle wall-clock after stream end is not counted", () => {
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  handleStream("start", { role: "assistant" }, futureBase, fx.session);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "abcd" }] }, futureBase + 10_000, fx.session);
+  landAssistant(fx, 10_000);
+  // 默认 isIdle()===true：空闲墙钟不得继续涨
+  fx.setNow(futureBase + 40_000);
+  assert.equal(timeOf(fx.context), "10s");
+});
+
+test("T12: duration does not jump when the toolResult entry lands", () => {
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  handleStream("start", { role: "assistant" }, futureBase, fx.session);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "abcd" }] }, futureBase + 10_000, fx.session);
+  landAssistant(fx, 10_000);
+  fx.context.ctx.isIdle = () => false;
+  fx.setNow(futureBase + 40_000);
+  const before = timeOf(fx.context);
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(40_000), message: { role: "toolResult" } });
+  fx.setNow(futureBase + 40_000);
+  const after = timeOf(fx.context);
+  assert.equal(before, "40s");
+  assert.equal(after, "40s");
 });
 

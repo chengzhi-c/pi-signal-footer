@@ -245,7 +245,9 @@ test("formats session duration in compact wall-clock units", () => {
   assert.equal(formatDuration(30_000), "30s");
   assert.equal(formatDuration(1_000), "1s");
   assert.equal(formatDuration(999), "0s");
-  assert.equal(formatDuration(61_000), "1m");
+  assert.equal(formatDuration(61_000), "1m1s");
+  assert.equal(formatDuration(90_000), "1m30s");
+  assert.equal(formatDuration(119_000), "1m59s");
   assert.equal(formatDuration(45 * 60_000), "45m");
   assert.equal(formatDuration(2 * 3_600_000 + 13 * 60_000), "2h13m");
   assert.equal(formatDuration(3 * 3_600_000), "3h00m");

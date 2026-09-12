@@ -78,12 +78,12 @@ export function inFlightTokens(session: object): number {
   return streamStates.get(session)?.timing?.liveTokens ?? 0;
 }
 
-/** 流式区间内的在途工作时长：本次请求已耗时。与本次请求落盘后的工作 gap 是同一段
- *  墙钟，数值先连续增长、落盘后由条目原地接管，不会在响应结束时向上跳一格。 */
-export function inFlightWorkMs(session: object, lastTs: number, now: number): number {
-  const state = streamStates.get(session);
-  if (!state?.timing) return 0; // 未在流式 → 不臆造进度
-  if (!Number.isFinite(lastTs)) return 0; // 空会话/无时间戳
+/** 在途工作时长：LLM 流式或 agent 仍忙（工具执行）时，从末条时间戳走到 now。
+ *  与即将落盘的工作 gap 是同一段墙钟，数值先连续增长、落盘后由条目原地接管。 */
+export function inFlightWorkMs(session: object, lastTs: number, now: number, busy = false): number {
+  const streaming = streamStates.get(session)?.timing != null;
+  if (!streaming && !busy) return 0;
+  if (!Number.isFinite(lastTs)) return 0;
   return Math.min(Math.max(0, now - lastTs), WORK_GAP_CAP_MS);
 }
 

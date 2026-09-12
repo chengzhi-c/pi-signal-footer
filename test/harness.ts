@@ -36,6 +36,7 @@ export type TestEntry = {
 export type TestContext = {
   model: { provider: string; id: string; contextWindow: number; reasoning?: boolean };
   thinkingLevel: string;
+  isIdle(): boolean;
   getContextUsage(): ContextUsageStub;
   sessionManager: {
     getEntries(): TestEntry[];
@@ -76,6 +77,7 @@ export function createContext(
   const ctx: TestContext = {
     model: { provider: "test", id: "gpt-test", contextWindow: contextUsage.contextWindow },
     thinkingLevel: "off",
+    isIdle: () => true,
     getContextUsage: () => contextUsage,
     sessionManager: {
       getEntries: () => entries,

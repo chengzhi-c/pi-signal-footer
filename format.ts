@@ -215,12 +215,14 @@ export function formatCacheHitRatio(read: number, write: number, input: number):
   return `${((100 * r) / (r + w + i)).toFixed(2)}%`;
 }
 
-/** 会话活跃跨度：不足一分钟显示秒，非法或非正值显示 "0m"。 */
+/** 会话活跃跨度：不足一分钟显示秒，不足一小时带秒余数（整分钟仍 Nm），≥1h 到分钟。非法或非正值显示 "0m"。 */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "0m";
   if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
 }

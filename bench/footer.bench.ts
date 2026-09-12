@@ -37,6 +37,7 @@ function makeFooter(count: number): { component: FooterComponent; entries: unkno
   const context = {
     model: { provider: "bench", id: "bench-model", contextWindow: 300_000 },
     thinkingLevel: "off",
+    isIdle: () => true,
     getContextUsage: () => ({ tokens: 150_000, contextWindow: 300_000, percent: 50 }),
     sessionManager: {
       getEntries: () => entries,
