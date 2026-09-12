@@ -1,10 +1,11 @@
 import { estimateOutputTokens, finiteNonNegative, formatSpeed } from "./format.ts";
 
 /** 单个 agent 工作请求的计时上限：只防病态跳变（resume / tree 导航后由命令直接触发
- *  的工作条目会把前置长闲置记成一段 gap）。实测真实会话工作 gap 最长 431s（7.2min），
- *  10min 留 39% 余量。footer.ts 的落盘 gap 记账与这里的在途工作时长共用这把尺——
- *  同一段墙钟，两处必须同一上限才不会在落盘瞬间跳格。 */
-export const WORK_GAP_CAP_MS = 10 * 60_000;
+ *  的工作条目会把前置长闲置记成一段 gap）。两轮真实会话实测（36+38 个）单段工作
+ *  最长 480s（8.0min），15min 留 87% 余量；上调的代价只在病态路径（闲置被多计 5min），
+ *  不上调的代价是超长生成在流式中途定格且落盘少计。footer.ts 的落盘 gap 记账与
+ *  这里的在途工作时长共用这把尺——同一段墙钟，两处必须同一上限才不会在落盘瞬间跳格。 */
+export const WORK_GAP_CAP_MS = 15 * 60_000;
 
 // 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
 // （剔除 TTFT/排队），message_end 用精确 usage.output 收口。

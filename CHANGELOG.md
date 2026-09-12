@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- **时长 / Duration**：单段工作间隙封顶从 10 分钟重标定为 15 分钟——两轮共 74 个真实会话实测单段工作最长 8.0 分钟，10 分钟封顶的余量已被侵蚀，超长单次生成会在流式中途让 `◷` 定格且落盘少计。 / The single work-gap cap is recalibrated from 10 to 15 minutes — across two rounds (74 real sessions) the longest measured work segment is 8.0 min, eroding the old margin; an extra-long generation used to freeze `◷` mid-stream and undercount once landed.
+- **速率 / Rate**：实时速率的滑动窗口样本上限 64 → 256，持续高于 128 chunk/s 的流（代理合流、高频 provider）不再静默退化为全程平均。 / The live-rate sliding window sample cap rises from 64 to 256, so streams sustained above 128 chunks/s (proxy coalescing, high-frequency providers) no longer silently fall back to the whole-response average.
 - **速率 / Rate**：纯工具调用回合（write/edit 参数流式生成，正文为空）此前整段没有任何实时读数；`≈+N` 与实时速率现在同样估算 toolCall 参数。 / Tool-call-only turns (streaming write/edit arguments with no prose) previously showed no live reading at all; `≈+N` and the live rate now estimate tool-call arguments as well.
 - **时长 / Duration**：`◷` 收敛为 agent 工作时长——人类思考/离开的间隔不再计入（旧口径每段截 2 分钟，多段累加虚增）；真实工作段计满，不再被 2 分钟上限砍掉（实测最长 7.2 分钟的单次生成此前被截成 2 分钟），单段封顶 10 分钟只防病态跳变。流式期间 `◷` 逐帧前进，响应结束由条目原地接管、不跳格。 / `◷` is now agent work time: human gaps no longer count (the old 2-min-per-gap cap inflated them); genuine work gaps count in full (a measured 7.2-min generation was previously cut to 2m), capped at 10 min against pathological jumps only. While streaming, `◷` advances frame by frame and is handed over by the landed entry without jumping.
 - **指标 / Metrics**：命中率括号自带口径标签（上轮 / last），不再让单次口径的百分比紧挨生涯累计量误导读数。 / The cache reuse parenthetical carries its own scope label (上轮 / last) instead of sitting ambiguous next to the lifetime total.

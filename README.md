@@ -13,7 +13,7 @@ Requires Pi Coding Agent >=0.84.4. Older hosts keep the native footer.
 
 The `≈` marks estimates: the live rate while a response streams, and the `≈+N` suffix on ↑ output (the estimate covers text, thinking and tool-call arguments; providers only report exact tokens at the end — both freeze/absorb into exact values on completion). Turn count = user messages billed in this session file, including steered messages and branches abandoned via `/tree` or `/fork` (their tokens were really spent, and totals use the same all-entries basis).
 
-`◷` is agent work time: gaps where a human was thinking or away are not counted; a single work gap caps at 10 minutes — if `/compact`, `resume` or `/tree` navigation hands work straight to a command-triggered entry, its preceding idle counts at most 10 minutes. The `↻` total is lifetime across all branches while the parenthesized reuse rate belongs to the **last** request only; the context bar on the same line is the current-branch view.
+`◷` is agent work time: gaps where a human was thinking or away are not counted; a single work gap caps at 15 minutes — if `/compact`, `resume` or `/tree` navigation hands work straight to a command-triggered entry, its preceding idle counts at most 15 minutes. The `↻` total is lifetime across all branches while the parenthesized reuse rate belongs to the **last** request only; the context bar on the same line is the current-branch view.
 
 ## Install
 

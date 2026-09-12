@@ -32,7 +32,7 @@ async function renderDuration(times: TimedEntry[]): Promise<string> {
   return renderLines(context, 160).join("\n");
 }
 
-test("A1: a work gap is counted in full up to the 10-minute cap", async () => {
+test("A1: a work gap is counted in full below the cap", async () => {
   // user → assistant 相隔 10 分钟：agent 真实工作（长生成/长工具），计满
   const output = await renderDuration([
     { ts: "2026-01-01T00:00:00.000Z", role: "user" },
@@ -407,7 +407,7 @@ test("T9: usage.output and the tool-call estimate merge by max, never by sum", (
   assert.doesNotMatch(output, /≈\+4\.0k/);
 });
 
-// T3/T4/T5：gap 按后继条目角色记账——工作计满（封顶 10min），人类间隔不计
+// T3/T4/T5：gap 按后继条目角色记账——工作计满（封顶 15min），人类间隔不计
 function roleGapHarness(gapMs: number, beforeRole: string, afterRole: string): Harness {
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   const t0 = Date.parse("2026-01-01T00:00:00.000Z");
@@ -434,13 +434,13 @@ test("T4: a human gap before a user entry does not count toward active time", as
   assert.doesNotMatch(output, /◷ 2m/);
 });
 
-test("T5: a pathological work gap is capped at 10 minutes", async () => {
+test("T5: a pathological work gap is capped at 15 minutes", async () => {
   const { handlers } = createApi();
-  // assistant → assistant 跨 3 天（resume//tree 后命令直接触发工作条目）：封顶 10m
+  // assistant → assistant 跨 3 天（resume//tree 后命令直接触发工作条目）：封顶 15m
   const context = roleGapHarness(3 * 86_400_000, "assistant", "assistant");
   await startSession(handlers, context);
   const output = renderLines(context).join("\n");
-  assert.match(output, /◷ 10m/);
+  assert.match(output, /◷ 15m/);
   assert.doesNotMatch(output, /\d+h\d{2}m/);
 });
 
