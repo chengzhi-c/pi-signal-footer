@@ -16,8 +16,10 @@ export const WORK_GAP_CAP_MS = 10 * 60_000;
 
 const RATE_WINDOW_MS = 1500;
 const RATE_WINDOW_MIN_MS = 500;
-/** 安全上限：超高频 chunk 下防样本数组无界增长（正常远达不到）。 */
-const RATE_WINDOW_MAX_SAMPLES = 64;
+/** 安全上限：防样本数组无界增长。标定式：上限 ≥ RATE_WINDOW_MS 内可到达的最大样本数，
+ *  否则高频 chunk 下窗口被压到 RATE_WINDOW_MIN_MS 以下，静默退回全程平均。
+ *  256 上限把可用窗口撑到约 500 chunk/s（256 ÷ 500ms），对实测 10–50 chunk/s 留一个量级余量。 */
+const RATE_WINDOW_MAX_SAMPLES = 256;
 
 type RateSample = { t: number; tokens: number };
 export type StreamState = {

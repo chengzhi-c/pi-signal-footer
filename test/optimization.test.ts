@@ -239,6 +239,25 @@ test("A3: falls back to the whole-average rate before the window fills", () => {
   assert.match(output, /≈20000 tok\/s/);
 });
 
+test("A3: the window survives sustained chunk rates above the old sample cap", () => {
+  const { context, session, setNow } = streamFixture();
+  handleStream("start", { role: "assistant" }, 0, session);
+  // 200 chunk/s 持续 2s，处在旧 64 样本上限的退化悬崖之上：窗口被压到 500ms
+  // 最小跨度以下，静默退回全程平均。上限必须 ≥ 时间窗内可到达的最大样本数。
+  // 慢段 60 chunk（+2 tok/chunk），快段 340 chunk（+50 tok/chunk）。
+  for (let k = 1; k <= 400; k++) {
+    const chars = k <= 60 ? 8 * k : 480 + 200 * (k - 60);
+    setNow(k * 5);
+    handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(chars) }] }, k * 5, session);
+  }
+  setNow(2000);
+  const output = openFooter(context).render(160).join("\n");
+  // 256 上限下窗口全为快段：50 tok / 5ms = 10000 tok/s。
+  // 全程平均退化的旧上限给 17120/1.995 ≈ 8580 —— 阈值 9500 卡住悬崖。
+  const rate = Number(output.match(/≈(\d+) tok\/s/)?.[1] ?? 0);
+  assert.ok(rate >= 9500, `windowed rate must survive 200 chunk/s, not fall back to the whole average: rate=${rate}`);
+});
+
 test("A3: the finalized end rate is unchanged by windowing", () => {
   const { context, session, setNow } = streamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
