@@ -2,18 +2,30 @@
 
 [English](README.md) | 简体中文
 
-为 [Pi Coding Agent](https://github.com/earendil-works/pi-mono) 提供的状态栏。
+为 [Pi Coding Agent](https://github.com/earendil-works/pi-mono) 提供的可读状态栏：模型、token、缓存、成本、上下文条、流式速率与 MCP/LSP 状态。
+
+**classic**（默认）
 
 ```text
 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main   ⎔ 12% [━━─────────────────] 36k/300k
-↓ 213 ↑ 32k │ ↻ 5.1M (上轮 97.35%) ✎ 137k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                          ⇄ MCP 1/1 · LSP typescript
+↓ 220 ↑ 32k │ ↻ 5.1M (上轮 97.35%) ✎ 139k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                  LSP typescript · ⇄ MCP 1/1
 ```
 
-需要 Pi Coding Agent >=0.84.4。更旧的宿主会保留原生状态栏。
+**vivid**（`/footer theme`）
 
-`≈` 标记估算值：流式进行中的实时速率，以及 ↑ 输出上的 `≈+N` 在途估算（估算覆盖正文、思考与工具调用参数；provider 只在结束时报告精确 token，两者在响应结束后归位为精确值）。它是**下限估算**：非 CJK 字符密度按真实会话标定（工具参数 JSON ≈2 字符/token，正文 ≈4），若 provider 计入的推理 token 多于其暴露的思考文本，读数只会偏低、不会偏高。实时速率只在新 chunk 到达时重算——停顿期间保持最后一次有效实测，不随时间衰减。轮数 = 本会话文件中的用户消息数，含 steering 插话与 `/tree`、`/fork` 放弃的分支（其 token 确实已计费，总量也用同一全量口径）。
+```text
+📁 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › 🐳 deepseek-v4-flash-0731 │ 🧠 max │ 🔀 main   📊 12% [━───────────] 36k/300k
+📥 220 📤 32k │ 🔄 5.1M (上轮 97.35%) 📝 139k │ 🪙 0.087 │ ⏳ 2h25m · 💬 1轮 · 🚀 45 tok/s                 🛠️ LSP typescript · 🔌 MCP 1/1
+```
 
-`◷` 是 agent 工作时长：人类思考/离开的间隔不计入，`model_change`、`thinking_level_change`、`session_info`、`label` 条目之前的空档同样不计入（属于人机边界与启动配置）。单段工作间隙封顶 15 分钟——若 `/compact`、`resume` 或 `/tree` 导航后由命令直接触发工作条目，其前置闲置最多被计入 15 分钟。`↻` 的总量是跨分支生涯累计，括号里的复用率只属于**上轮**请求；同一行的上下文条则是当前分支口径。若某轮请求完全未上报输入维度，括号复用率沿用上轮已知值（读数滞后，绝不伪造 0.00%）。流式中途被 steering 打断时，已流式段落被重记为人类间隔，◷ 会回退最多一个响应的长度。
+需要 Pi Coding Agent >=0.84.4，更旧的宿主保留原生状态栏。
+
+## 读数口径
+
+- `≈` 标记下限估算：流式实时速率，以及 ↑ 上的 `≈+N` 在途后缀（覆盖正文、思考与工具调用参数；provider 只在结束时报告精确 token，届时后缀变为精确的 `+N`）。字符密度按真实会话标定——工具参数 JSON ≈2 字符/token、正文 ≈4——provider 计入的推理 token 多于其暴露的思考文本时，读数只会偏低、不会偏高。实时速率只在新 chunk 到达时重算：停顿期间保持最后一次实测，不随时间衰减。
+- 轮数 = 本会话文件中的用户消息数，含 steering 插话与 `/tree`、`/fork` 放弃的分支（其 token 确实已计费，总量用同一全量口径）。
+- `◷` 是 agent 工作时长：你思考、离开的等待时间不计，切换模型、调整思考等级、会话命名等人工操作前的空档同样不计；单段空档最多计 15 分钟。流式中途被 steering 打断时，◷ 会回退最多一个响应的长度。
+- `↻` 是跨分支生涯累计；括号里的复用率只属于**上轮**请求。某轮请求完全未上报输入维度时沿用上轮已知值（读数滞后，绝不伪造 0.00%）。上下文条是当前分支口径。
 
 ## 安装
 
@@ -21,17 +33,11 @@ C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4
 pi install npm:pi-signal-footer
 ```
 
-固定版本：`pi install npm:pi-signal-footer@<版本号>`。更新：`pi update --extensions`。
-
-从 git tag 安装：
-
-```sh
-pi install git:github.com/chengzhi-c/pi-signal-footer@v<版本号>
-```
+固定版本 `pi install npm:pi-signal-footer@<版本号>`，更新 `pi update --extensions`，或从 git tag 安装：`pi install git:github.com/chengzhi-c/pi-signal-footer@v<版本号>`。
 
 ## 配置
 
-设置写在 Pi 代理目录（通常是 `~/.pi/agent/`）下的 `pi-signal-footer.json`。文件缺失或无效时使用下列默认值：
+设置写在 Pi 代理目录（通常 `~/.pi/agent/`）下的 `pi-signal-footer.json`，缺失或无效时回退默认值。下面的命令会写这个文件。
 
 ```json
 {
@@ -48,11 +54,11 @@ pi install git:github.com/chengzhi-c/pi-signal-footer@v<版本号>
 }
 ```
 
-`locale` 为 `auto`、`zh` 或 `en`。`theme` 选择外观：`classic`（默认，极简单色 Unicode 经典版）或 `vivid`（多彩表情版：采用 📁、📥、📤、🔄、📝、🪙、📊、🔀、🧠、⏳、💬、🚀、🔌、🛠️ 等全彩 Emoji 图标，支持彩色模型家族形象，指标数值统一协调浅色呈现）。下面的命令会写这个文件。
+`locale`：`auto` / `zh` / `en`。`theme`：`classic`（极简单色）或 `vivid`（多彩表情，见上方第二个示例）。
 
 ## 命令
 
-支持 `/signal-footer` 以及短别名 `/footer`：
+`/signal-footer` 与短别名 `/footer` 功能完全一致：
 
 ```text
 /footer legend              显示指标图例
@@ -60,20 +66,15 @@ pi install git:github.com/chengzhi-c/pi-signal-footer@v<版本号>
 /footer help                显示全部命令
 /footer off                 切回原生状态栏
 /footer on                  启用本状态栏
-/footer path [on|off]       显示/隐藏项目路径
-/footer session [on|off]    显示/隐藏会话名
-/footer time [on|off]       显示/隐藏会话时长
-/footer turns [on|off]      显示/隐藏轮次
-/footer speed [on|off]      显示/隐藏响应速率
-/footer branch [on|off]     显示/隐藏 Git 分支
-/footer cache [on|off]      显示/隐藏缓存命中率
+/footer path|session|time|turns|speed|branch|cache [on|off]
+                            显示/隐藏单项（省略 on|off 即切换）
 /footer status              显示当前设置
 /footer locale auto|zh|en   设置界面语言
 /footer theme [vivid|classic]
-                            切换配色主题（省略即在经典版与多彩表情版间切换）
+                            切换主题（省略即切换）
 ```
 
-单项命令省略 `on|off` 即切换。`off` 与 `on` 跨会话持久。`/signal-footer` 与 `/footer` 功能完全一致。
+`off` 与 `on` 跨会话持久。
 
 ## 许可证
 
