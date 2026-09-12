@@ -8,7 +8,6 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
 
 import {
-  copyFor,
   finiteNonNegative,
   formatCacheHitRatio,
   formatContext,
@@ -369,9 +368,8 @@ function buildStatsLine(
   const hitRatio = settings.showCacheRatio && lastRequest
     ? formatCacheHitRatio(lastRequest.cacheRead, lastRequest.cacheWrite, lastRequest.input)
     : undefined;
-  // 括号里的复用率是"单次请求"口径，与 ↻ 的生涯累计量并排极易被读成"累计里的比例"，
-  // 故带 scope 标签（上轮 / last），让行内自证口径而不是依赖用户先读图例。
-  const cacheReadNum = `${paintValue(theme, palette.read, formatTokens(totals.cacheRead))}${hitRatio ? theme.fg(palette.ratio, ` (${copyFor(locale).ratioScope} ${hitRatio})`) : ""}`;
+  // 括号里的复用率是"单次请求"口径，与 ↻ 的生涯累计量并排；口径解释交给图例与 README，行内不挂标签。
+  const cacheReadNum = `${paintValue(theme, palette.read, formatTokens(totals.cacheRead))}${hitRatio ? theme.fg(palette.ratio, ` (${hitRatio})`) : ""}`;
   const timeParts: string[] = [];
   if (settings.showDuration && Number.isFinite(session.firstTs) && Number.isFinite(session.lastTs)) {
     timeParts.push(theme.fg(palette.timeFg, formatDuration(session.activeMs)));

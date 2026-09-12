@@ -182,7 +182,7 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
 
   const all = renderLines(context, 160).join("\n");
   assert.match(all, /◷ 1m/);
-  assert.match(all, /↻ 900 \(last 89\.11%\)/);
+  assert.match(all, /↻ 900 \(89\.11%\)/);
   assert.match(all, /50 tok\/s/);
 
   await setField(commands, context.ctx, "time", "off");

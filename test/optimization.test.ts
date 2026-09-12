@@ -102,7 +102,7 @@ test("A1: multi-day active durations still render compactly", () => {
 
 async function renderCacheRatio(usages: Array<{ input?: number; cacheRead?: number; cacheWrite?: number; output?: number }>): Promise<string> {
   const { handlers, agentDir } = createApi();
-  // 命中率括号带 locale 相关的 scope 标签（上轮 / last），钉死英文
+  // 输出文案钉英文，断言不随宿主语言漂移
   pinLocale(agentDir, "en");
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   usages.forEach((usage, index) => {
@@ -122,7 +122,7 @@ test("A2: a cache-miss request resets the shown hit ratio to 0.00%", async () =>
     { input: 10, cacheRead: 900, cacheWrite: 0 },
     { input: 500, cacheRead: 0, cacheWrite: 0 },
   ]);
-  assert.match(output, /\(last 0\.00%\)/);
+  assert.match(output, /\(0\.00%\)/);
   assert.doesNotMatch(output, /98\.90%/);
 });
 
@@ -131,7 +131,7 @@ test("A2: a cache-hit request after a miss shows the hit ratio again", async () 
     { input: 500, cacheRead: 0, cacheWrite: 0 },
     { input: 10, cacheRead: 900, cacheWrite: 0 },
   ]);
-  assert.match(output, /\(last 98\.90%\)/);
+  assert.match(output, /\(98\.90%\)/);
 });
 
 test("A2: no usage at all hides the ratio as before", async () => {
@@ -155,8 +155,8 @@ test("A2: an all-zero assistant usage keeps the previous ratio instead of faking
     { input: 10, cacheRead: 900, cacheWrite: 0 },
     { input: 0, cacheRead: 0, cacheWrite: 0 },
   ]);
-  assert.match(output, /\(last 98\.90%\)/);
-  assert.doesNotMatch(output, /\(last 0\.00%\)/);
+  assert.match(output, /\(98\.90%\)/);
+  assert.doesNotMatch(output, /\(0\.00%\)/);
 });
 
 // ===== A3：实时速率滑动窗口 =====
@@ -348,7 +348,7 @@ test("A4: the in-flight estimate disappears once the response finalizes", () => 
 test("B1: non-assistant usage never updates the cache ratio snapshot", async () => {
   // compaction 只有 cost 维度；若被当作请求快照，会把命中率误报成 0.00%
   const { handlers, agentDir } = createApi();
-  pinLocale(agentDir, "en"); // 命中率括号带 locale 相关的 scope 标签
+  pinLocale(agentDir, "en"); // 文案钉英文，断言不随宿主语言漂移
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
     {
@@ -362,7 +362,7 @@ test("B1: non-assistant usage never updates the cache ratio snapshot", async () 
   const output = renderLines(context, 160).join("\n");
   // 总量含 compaction 的 cost（$0.050），但括号率仍是 assistant 请求的 98.90%
   assert.match(output, /\$0\.050/);
-  assert.match(output, /\(last 98\.90%\)/);
+  assert.match(output, /\(98\.90%\)/);
 });
 // ===== A5（R7-P69）：实时准确性收口——toolCall 估算、角色化 gap 记账、流式活刻度 =====
 

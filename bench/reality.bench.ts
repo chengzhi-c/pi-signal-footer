@@ -208,7 +208,7 @@ for (const file of files) {
 
   // 与渲染值逐会话比对：轮数、命中率、成本、时长都必须能从独立复算得到。
   const renderedTurns = Number(text.match(/(\d+) turns?/)?.[1] ?? Number.NaN);
-  const renderedRatio = Number(text.match(/\(last ([\d.]+)%\)/)?.[1] ?? Number.NaN) / 100;
+  const renderedRatio = Number(text.match(/\(([\d.]+)%\)/)?.[1] ?? Number.NaN) / 100;
   const renderedTime = text.match(/◷ ([^\s·]+)/)?.[1] ?? "";
   const totals = truthTotals(entries);
   const latest = latestRequest(entries);

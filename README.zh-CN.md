@@ -8,14 +8,14 @@
 
 ```text
 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main   ⎔ 12% [━━─────────────────] 36k/300k
-↓ 220 ↑ 32k │ ↻ 5.1M (上轮 97.35%) ✎ 139k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                  LSP typescript · ⇄ MCP 1/1
+↓ 220 ↑ 32k │ ↻ 5.1M (97.35%) ✎ 139k │ $0.087 │ ◷ 2h25m · 1轮 · 45 tok/s                                       LSP typescript · ⇄ MCP 1/1
 ```
 
 **vivid**（`/footer theme`）
 
 ```text
 📁 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › 🐳 deepseek-v4-flash-0731 │ 🧠 max │ 🔀 main   📊 12% [━───────────] 36k/300k
-📥 220 📤 32k │ 🔄 5.1M (上轮 97.35%) 📝 139k │ 🪙 0.087 │ ⏳ 2h25m · 💬 1轮 · 🚀 45 tok/s                 🛠️ LSP typescript · 🔌 MCP 1/1
+📥 220 📤 32k │ 🔄 5.1M (97.35%) 📝 139k │ 🪙 0.087 │ ⏳ 2h25m · 💬 1轮 · 🚀 45 tok/s                      🛠️ LSP typescript · 🔌 MCP 1/1
 ```
 
 需要 Pi Coding Agent >=0.84.4，更旧的宿主保留原生状态栏。
