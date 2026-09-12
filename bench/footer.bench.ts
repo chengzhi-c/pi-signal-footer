@@ -69,6 +69,12 @@ const ITERATIONS = 30;
 const WIDTH = 140;
 let gateFailed = false;
 
+// JIT 预热：进程首次渲染带初始化噪声（实测 100 条目 cold 37ms vs 1000 条目 1.4ms），
+// 先跑一次小规模渲染，cold 才度量"memo 失效后的全量扫描"本身。
+const warmup = makeFooter(10);
+warmup.component.render(WIDTH);
+warmup.component.dispose?.();
+
 for (const count of [100, 1_000, 10_000]) {
   const { component } = makeFooter(count);
   const samples: number[] = [];

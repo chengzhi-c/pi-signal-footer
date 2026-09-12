@@ -121,13 +121,19 @@ test("R4: a slow stream keeps falling back to the running average, never to a bo
 // ===== 在途读数与落盘衔接（响应结束时不得回退）=====
 
 const outputOf = (output: string): number | undefined => {
-  const match = output.match(/↑ (\d+(?:\.\d+)?)(k|M)?( ≈\+(\d+(?:\.\d+)?)(k|M)?)?/);
+  const match = output.match(/↑ (\d+(?:\.\d+)?)(k|M)?(?: ([≈]?\+)(\d+(?:\.\d+)?)(k|M)?)?/);
   if (!match) return undefined;
   const scale = (unit: string | undefined) => (unit === "k" ? 1_000 : unit === "M" ? 1_000_000 : 1);
   return Number(match[1]) * scale(match[2]) + (match[4] ? Number(match[4]) * scale(match[5]) : 0);
 };
 
-test("R5: the in-flight output reading survives until the finished entry lands", async () => {
+/** ↑ 在途后缀的标记："≈" = 估算，"+" = 精确，"" = 无在途。 */
+const inflightMarkerOf = (output: string): string => {
+  const marker = output.match(/↑ \d+(?:\.\d+)?[kM]? ([≈]?\+)/)?.[1];
+  return marker === "≈+" ? "≈" : marker === "+" ? "+" : "";
+};
+
+test("R5: the in-flight reading turns exact at end and the landed frame is a no-op", async () => {
   const api = createApi();
   const context = createContext({ tokens: 1000, contextWindow: 200_000, percent: 0.5 });
   pinLocale(api.agentDir, "en");
@@ -155,26 +161,34 @@ test("R5: the in-flight output reading survives until the finished entry lands",
 
   handleStream("start", { role: "assistant" }, 5_000, session);
   handleStream("update", streamed, 6_000, session);
-  const streaming = outputOf(openFooter(context).render(200).join("\n"));
+  const streamingText = openFooter(context).render(200).join("\n");
+  const streaming = outputOf(streamingText);
+  assert.equal(inflightMarkerOf(streamingText), "≈", "while streaming the suffix is the estimate marker");
 
-  // 宿主顺序：扩展先收到 message_end，条目在其后才落盘。
+  // 宿主顺序：扩展先收到 message_end，条目在其后才落盘。end 携带精确 output：
+  // 在途读数立即定格为落盘条目将累计的精确增量，交接窗口内不再展示陈旧估算。
   handleStream("end", finalMessage, 7_000, session, context.entries.length);
-  const beforePersist = outputOf(openFooter(context).render(200).join("\n"));
+  const beforePersistText = openFooter(context).render(200).join("\n");
+  const beforePersist = outputOf(beforePersistText);
+  assert.equal(inflightMarkerOf(beforePersistText), "+", "an exact end drops the estimate marker");
 
   context.entries.push({
     type: "message",
     timestamp: new Date(7_000).toISOString(),
     message: finalMessage,
   } as never);
-  const afterPersist = outputOf(openFooter(context).render(200).join("\n"));
+  const afterPersistText = openFooter(context).render(200).join("\n");
+  const afterPersist = outputOf(afterPersistText);
 
   assert.ok(streaming !== undefined && beforePersist !== undefined && afterPersist !== undefined);
-  assert.equal(beforePersist, streaming, "the handoff must not drop the in-flight reading before the entry lands");
+  assert.equal(streaming, 3_200, "streaming shows the exact total plus the in-flight estimate");
+  assert.equal(beforePersist, 5_200, "end hands the exact billed value to the in-flight reading");
   assert.ok(
-    afterPersist >= beforePersist,
-    `the landed total must not be lower than the last in-flight reading: in-flight=${beforePersist} landed=${afterPersist}`,
+    beforePersist >= streaming,
+    `the exact handoff must not drop below the last streaming reading: streaming=${streaming} handoff=${beforePersist}`,
   );
   assert.equal(afterPersist, 5_200, "the landed total must be the exact accumulated output");
+  assert.equal(afterPersist, beforePersist, "the landed frame must be a no-op once the reading is exact");
 });
 
 test("R6: a new request does not inherit the previous in-flight reading", async () => {
@@ -195,6 +209,52 @@ test("R6: a new request does not inherit the previous in-flight reading", async 
   const fresh = outputOf(openFooter(context).render(200).join("\n"));
   assert.ok(carried !== undefined && fresh !== undefined);
   assert.ok(fresh < carried, `a new request must not inherit the previous in-flight reading: carried=${carried} fresh=${fresh}`);
+});
+
+test("R16: an exact end renders the in-flight suffix without the estimate marker", async () => {
+  const api = createApi();
+  const context = createContext({ tokens: 1000, contextWindow: 200_000, percent: 0.5 });
+  pinLocale(api.agentDir, "en");
+  await startSession(api.handlers, context);
+  const session = context.ctx.sessionManager;
+  context.entries.push({
+    type: "message",
+    timestamp: new Date(1_000).toISOString(),
+    message: { role: "assistant", usage: { input: 100, output: 2_000, cacheRead: 900, cacheWrite: 0, cost: { total: 0 } }, content: [] },
+  } as never);
+
+  const message = { role: "assistant", usage: { output: 3_200 }, content: [{ type: "text", text: "a".repeat(4_800) }] };
+  handleStream("start", { role: "assistant" }, 5_000, session);
+  handleStream("update", { role: "assistant", usage: {}, content: message.content }, 6_000, session);
+  const streamingText = openFooter(context).render(200).join("\n");
+  assert.equal(inflightMarkerOf(streamingText), "≈", "while streaming the in-flight suffix stays an estimate");
+
+  // end 携带精确 output：后缀即精确值，不得再挂估算标记。
+  handleStream("end", message, 7_000, session, context.entries.length);
+  const ended = openFooter(context).render(200).join("\n");
+  assert.equal(inflightMarkerOf(ended), "+", "an exact end must drop the ≈ marker on the in-flight suffix");
+});
+
+test("R17: an estimate end keeps the ≈ marker and the estimate value until the entry lands", async () => {
+  const api = createApi();
+  const context = createContext({ tokens: 1000, contextWindow: 200_000, percent: 0.5 });
+  pinLocale(api.agentDir, "en");
+  await startSession(api.handlers, context);
+  const session = context.ctx.sessionManager;
+  context.entries.push({
+    type: "message",
+    timestamp: new Date(1_000).toISOString(),
+    message: { role: "assistant", usage: { input: 100, output: 2_000, cacheRead: 900, cacheWrite: 0, cost: { total: 0 } }, content: [] },
+  } as never);
+
+  // 与 R16 同形，但 end 不带 usage（中止 / 部分 provider）：后缀沿用估算值与 ≈ 标记。
+  const message = { role: "assistant", usage: {}, content: [{ type: "text", text: "a".repeat(4_800) }] };
+  handleStream("start", { role: "assistant" }, 5_000, session);
+  handleStream("update", message, 6_000, session);
+  handleStream("end", message, 7_000, session, context.entries.length);
+  const ended = openFooter(context).render(200).join("\n");
+  assert.equal(inflightMarkerOf(ended), "≈", "an estimate handoff keeps the ≈ marker");
+  assert.equal(outputOf(ended), 3_200, "the estimate handoff keeps the estimate value until the entry lands");
 });
 
 // ===== 工具调用参数的估算密度（实测标定：JSON ≈ 2 字符/token）=====

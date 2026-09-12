@@ -34,6 +34,7 @@ import {
 } from "./palette.ts";
 import type { FooterSettings, FooterTheme } from "./settings.ts";
 import {
+  inFlightExact,
   inFlightTokens,
   inFlightWorkMs,
   settleStream,
@@ -347,18 +348,23 @@ type StatsView = {
   locale: ReturnType<typeof resolveLocale>;
   lastRate: string;
   inflight: number;
+  /** 在途读数是否已是精确值（end 且 provider 报了 output；决定后缀用 + 还是 ≈+）。 */
+  inflightExact: boolean;
 };
 
 function buildStatsLine(
   theme: Theme,
   view: StatsView,
 ): { stats: string; trafficGroup: string; cacheGroup: string; cost: string; timeGroup: string } {
-  const { totals, lastRequest, session, settings, locale, lastRate, inflight } = view;
+  const { totals, lastRequest, session, settings, locale, lastRate, inflight, inflightExact } = view;
   const palette = PALETTES[settings.theme];
   const pipe = theme.fg(palette.chrome, " │ ");
   const input = `${theme.fg(palette.input.icon, palette.icons.input)} ${paintValue(theme, palette.input, formatTokens(totals.input))}`;
-  // 在途估算与实时速率同源（usage 只在响应末尾落账），精确值随条目 append 接管，故带 ≈ 前缀。
-  const inflightSuffix = inflight > 0 ? theme.fg(palette.inflight, ` ≈+${formatTokens(inflight)}`) : "";
+  // 在途估算与实时速率同源（usage 只在响应末尾落账），流式期间带 ≈ 前缀（下限估算）；
+  // end 已报精确 output 时读数即落盘条目将累计的精确值，估算标记只留给真估算。
+  const inflightSuffix = inflight > 0
+    ? theme.fg(palette.inflight, ` ${inflightExact ? "+" : "≈+"}${formatTokens(inflight)}`)
+    : "";
   const output = `${theme.fg(palette.output.icon, palette.icons.output)} ${paintValue(theme, palette.output, formatTokens(totals.output))}${inflightSuffix}`;
   const hitRatio = settings.showCacheRatio && lastRequest
     ? formatCacheHitRatio(lastRequest.cacheRead, lastRequest.cacheWrite, lastRequest.input)
@@ -473,6 +479,7 @@ function renderFooter(
     locale,
     lastRate: streamRate(ctx.sessionManager),
     inflight: inFlightTokens(ctx.sessionManager),
+    inflightExact: inFlightExact(ctx.sessionManager),
   };
   return layoutLines(
     width,

@@ -37,8 +37,9 @@ export type StreamState = {
     /** 本请求的增量估算器：update 喂累积全文，只扫新增后缀；end 随 timing 一起出局。 */
     estimator: OutputEstimator;
   } | null;
-  /** end 后的在途读数：宿主在扩展收到 message_end 之后才落盘，条目数增长即释怀。 */
-  pending: { tokens: number; entries: number } | null;
+  /** end 后的在途读数：宿主在扩展收到 message_end 之后才落盘，条目数增长即释怀。
+   *  provider 报了精确 output 时 tokens 即该精确值（exact=true），否则为估算（exact=false）。 */
+  pending: { tokens: number; entries: number; exact: boolean } | null;
   lastRate: string;
   /** 手动 /compact 期间 isIdle() 仍为 true，靠这对事件把 ◷ 接着往前走。 */
   workHold: boolean;
@@ -104,6 +105,11 @@ export function inFlightTokens(session: object): number {
   const state = streamStates.get(session);
   if (!state) return 0;
   return state.timing?.liveTokens ?? state.pending?.tokens ?? 0;
+}
+
+/** 在途读数是否已是精确值（end 时 provider 报了正 output；流式期间恒为 false）。 */
+export function inFlightExact(session: object): boolean {
+  return streamStates.get(session)?.pending?.exact ?? false;
 }
 
 /** 在途工作时长：LLM 流式、agent 仍忙（工具执行）或手动压缩 hold 时，从末条时间戳走到 now。
@@ -190,13 +196,17 @@ export function handleStream(
   const start = state.timing.tFirst ?? state.timing.tRequest;
   const ms = now - start;
   const liveTokens = state.timing.liveTokens;
-  // 宿主在扩展收到 message_end 之后才落盘：读数先转入 pending，条目落盘后由
-  // settleStream 释怀，↑ 不会在交接帧掉一截。entryCount 不可得时退回旧行为。
-  state.pending = entryCount >= 0 ? { tokens: liveTokens, entries: entryCount } : null;
-  state.timing = null;
   // 与 update 路径同一把 finiteNonNegative 尺：非有限/非数值的 output 不是可用的
   // 精确值，必须落回估算分支，而不是进入 formatSpeed 后被置空成整段空窗。
   const billed = finiteNonNegative(message.usage?.output);
+  // 宿主在扩展收到 message_end 之后才落盘：读数先转入 pending，条目落盘后由
+  // settleStream 释怀。provider 报了精确 output 时 pending 直接携带它——落盘条目
+  // 累计的增量恰为该值，交接窗口内读数即精确（exact），落盘帧成为无操作；
+  // 无精确值（中止、部分 provider、空响应）沿用估算并保留 ≈ 语义。
+  state.pending = entryCount >= 0
+    ? { tokens: billed > 0 ? billed : liveTokens, entries: entryCount, exact: billed > 0 }
+    : null;
+  state.timing = null;
   if (billed > 0 && ms > 0) state.lastRate = formatSpeed(billed, ms);
   // 中止或 provider 不报 usage 时用本请求已观测的估算收口：读数不空窗，且保留 ≈ 语义。
   else if (liveTokens > 0 && ms > 0) {
