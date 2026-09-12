@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { copyFor, legendLines } from "../format.ts";
@@ -615,5 +616,16 @@ test("vivid palette repaints stat groups while classic stays neutral", () => {
   assert.ok(!vivid.bolds.has("🪙 0.010"), "cost stays clean and regular");
   assert.ok(!vivid.bolds.has("100"), "cache write value stays clean and regular");
   assert.ok(!vivid.bolds.has("0m"), "metadata like duration stays regular");
+});
+
+test("README documents the carried-over cache ratio and the steered-stream duration semantics", () => {
+  // 沿用/回退只在 README 承诺：关键词宽松匹配，重写措辞保留语义即绿，整句删除即红。
+  // 回退断言必须用专属词——两 README 的轮数句已含 "steered messages"/"steering 插话"，/steer/i 红灯无效。
+  const en = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const zh = readFileSync(new URL("../README.zh-CN.md", import.meta.url), "utf8");
+  assert.match(en, /carr(?:y|ies) over/i);
+  assert.match(zh, /沿用/);
+  assert.match(en, /steps? back/i);
+  assert.match(zh, /回退/);
 });
 
