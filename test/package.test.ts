@@ -56,7 +56,10 @@ test("keeps the runtime host floor, peer floor, and READMEs aligned", () => {
   }
 });
 
-test("keeps the footer benchmark opt-in and outside the published file list", () => {
+test("keeps the benchmarks opt-in and outside the published file list", () => {
+  // 两个 bench 都是带 exitCode 的回归闸门，必须有 script 指向才会在需要时被运转
   assert.equal(manifest.scripts?.["bench:footer"], "tsx bench/footer.bench.ts");
+  assert.equal(manifest.scripts?.["bench:estimate"], "tsx bench/estimate.bench.ts");
   assert.ok(!manifest.files?.includes("bench/footer.bench.ts"));
+  assert.ok(!manifest.files?.includes("bench/estimate.bench.ts"));
 });

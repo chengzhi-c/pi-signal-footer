@@ -38,7 +38,8 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run test && npm run typecheck",
     "pack:check": "npm pack --dry-run",
-    "bench:footer": "tsx bench/footer.bench.ts"
+    "bench:footer": "tsx bench/footer.bench.ts",
+    "bench:estimate": "tsx bench/estimate.bench.ts"
   },
   "pi": {
     "extensions": [

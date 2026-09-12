@@ -1,4 +1,4 @@
-import { estimateOutputTokens, finiteNonNegative, formatSpeed } from "./format.ts";
+import { createOutputEstimator, finiteNonNegative, formatSpeed, type OutputEstimator } from "./format.ts";
 
 /** 单个 agent 工作请求的计时上限：只防病态跳变（resume / tree 导航后由命令直接触发
  *  的工作条目会把前置长闲置记成一段 gap）。两轮真实会话实测（36+38 个）单段工作
@@ -29,6 +29,8 @@ export type StreamState = {
     tFirst: number | null;
     liveTokens: number;
     samples: RateSample[];
+    /** 本请求的增量估算器：update 喂累积全文，只扫新增后缀；end 随 timing 一起出局。 */
+    estimator: OutputEstimator;
   } | null;
   lastRate: string;
 };
@@ -99,7 +101,7 @@ export function handleStream(kind: StreamKind, message: StreamMessage, now: numb
   if (message.role !== "assistant") return;
   if (kind === "start") {
     const state = streamStateFor(session);
-    state.timing = { tRequest: now, tFirst: null, liveTokens: 0, samples: [] };
+    state.timing = { tRequest: now, tFirst: null, liveTokens: 0, samples: [], estimator: createOutputEstimator() };
     state.lastRate = "";
     return;
   }
@@ -114,7 +116,7 @@ export function handleStream(kind: StreamKind, message: StreamMessage, now: numb
     timing.liveTokens = Math.max(
       timing.liveTokens,
       finiteNonNegative(message.usage?.output),
-      estimateOutputTokens(typeof message.content === "string" ? undefined : message.content),
+      timing.estimator.estimate(typeof message.content === "string" ? undefined : message.content),
     );
     // 窗口采样：先挤出超出回看跨度的旧样本（暂停段自动出局），再记录 (时刻, 累计 token)。
     while (timing.samples[0] !== undefined && now - timing.samples[0].t > RATE_WINDOW_MS) timing.samples.shift();

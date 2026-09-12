@@ -1,21 +1,22 @@
 import { performance } from "node:perf_hooks";
 
-import { estimateOutputTokens } from "../format.ts";
+import { createOutputEstimator } from "../format.ts";
 
 type EstimateBlock = { type: string; text?: string; thinking?: string; arguments?: unknown };
 
-// A4 gate：估算函数在流式热路径上被每个 chunk 调用一次（传入累积全文）。
-// 正文与工具参数两条路径共用同一估算入口，故同受门槛约束：50KB 在 200 chunk
-// 下整段 p50 须 < 25ms（帧预算 16ms/chunk 的 1.6 倍以内），否则维持全量扫描
-// 实现的前提失效，需改增量累加。
+// A4 gate：估算在流式热路径上被每个 chunk 调用一次（同一估算器喂入累积全文，
+// 与 stream.ts 的 per-request estimator 同形）。正文与工具参数两条路径共用同一
+// 估算入口，故同受门槛约束：50KB 在 200 chunk 下整段 p50 须 < 25ms（帧预算
+// 16ms/chunk 的 1.6 倍以内），否则增量累加的前提失效，需回全量扫描或重新标定。
 function scenario(label: string, blocks: (size: number) => EstimateBlock[], total: number, chunks: number, iterations: number): number {
   const chunkSize = Math.ceil(total / chunks);
   const samples: number[] = [];
   for (let iteration = 0; iteration < iterations; iteration++) {
+    const estimator = createOutputEstimator();
     const start = performance.now();
     let sink = 0;
     for (let size = chunkSize; size <= total; size += chunkSize) {
-      sink += estimateOutputTokens(blocks(size));
+      sink += estimator.estimate(blocks(size));
     }
     samples.push(performance.now() - start);
     if (sink === -1) console.log("unreachable, keeps total live");

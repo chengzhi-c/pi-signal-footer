@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateOutputTokens, formatDuration } from "../format.ts";
+import { createOutputEstimator, estimateOutputTokens, formatDuration } from "../format.ts";
 import { installFooter } from "../footer.ts";
 import { handleStream } from "../stream.ts";
 import { DEFAULT_SETTINGS } from "../settings.ts";
@@ -548,3 +548,104 @@ test("T12: duration does not jump when the toolResult entry lands", () => {
   assert.equal(after, "40s");
 });
 
+// ===== R（R10-P76）：估算器增量累加——输出值与全量扫描逐一相等 =====
+
+type EstBlock = { type: string; text?: string; thinking?: string; arguments?: unknown };
+
+/** 逐步累积的快照序列：每步的 content 都是「迄今全文」，与宿主 parseStreamingJson 的语义一致。 */
+function stepwiseSnapshots(mutate: (blocks: EstBlock[], step: number) => void, steps: number): EstBlock[][] {
+  const blocks: EstBlock[] = [];
+  const snapshots: EstBlock[][] = [];
+  for (let step = 0; step < steps; step++) {
+    mutate(blocks, step);
+    snapshots.push(structuredClone(blocks));
+  }
+  return snapshots;
+}
+
+function runAgainstFullScan(snapshots: EstBlock[][]): void {
+  const estimator = createOutputEstimator();
+  for (const content of snapshots) {
+    assert.equal(estimator.estimate(content), estimateOutputTokens(content));
+  }
+}
+
+test("R1: incremental estimate equals the full scan at every step of a growing stream", () => {
+  const snapshots = stepwiseSnapshots((blocks, step) => {
+    if (step === 0 || (blocks.length < 4 && step % 5 === 0)) {
+      const index = blocks.length;
+      blocks.push(
+        index === 0 ? { type: "text", text: "a".repeat(400) }
+        : index === 1 ? { type: "thinking", thinking: "思".repeat(200) }
+        : index === 2 ? { type: "toolCall" }
+        : { type: "toolCall", arguments: { content: "x".repeat(300) } },
+      );
+      return;
+    }
+    const last = blocks.at(-1)!;
+    if (last.type === "text") last.text += "a".repeat(300) + "汉典混排";
+    else if (last.type === "thinking") last.thinking += "思".repeat(120);
+    else {
+      const args = (last.arguments ?? { content: "" }) as { content: string };
+      args.content += "x".repeat(500);
+      last.arguments = args;
+    }
+  }, 24);
+  runAgainstFullScan(snapshots);
+});
+
+test("R2: a block that shrinks falls back to a full rescan and stays equal", () => {
+  let truncated = false;
+  const snapshots = stepwiseSnapshots((blocks) => {
+    const text = blocks[0];
+    if (!text) {
+      blocks.push({ type: "text", text: "a".repeat(300) });
+      return;
+    }
+    text.text = (text.text ?? "") + (truncated ? "汉a".repeat(150) : "a".repeat(300));
+    if (!truncated && (text.text?.length ?? 0) > 2_000) {
+      text.text = text.text!.slice(0, 500);
+      truncated = true;
+    }
+  }, 20);
+  runAgainstFullScan(snapshots);
+});
+
+test("R3: a block replaced in place falls back to a full rescan and stays equal", () => {
+  let replaced = false;
+  const snapshots = stepwiseSnapshots((blocks) => {
+    if (replaced) {
+      const toolCall = blocks[1]!;
+      const args = (toolCall.arguments ?? { content: "" }) as { content: string };
+      args.content += "x".repeat(400);
+      toolCall.arguments = args;
+      return;
+    }
+    if (blocks.length < 2) blocks.push({ type: "text", text: "a".repeat(300) });
+    else {
+      blocks[1] = { type: "toolCall", arguments: { content: "y".repeat(200) } };
+      replaced = true;
+    }
+  }, 16);
+  runAgainstFullScan(snapshots);
+});
+
+test("R4: a removed block drops its memo and the stream stays equal", () => {
+  let removed = false;
+  const snapshots = stepwiseSnapshots((blocks) => {
+    if (!removed) {
+      if (blocks.length < 3) {
+        blocks.push(
+          blocks.length === 1 ? { type: "thinking", thinking: "思".repeat(100) } : { type: "text", text: "a".repeat(300) },
+        );
+        return;
+      }
+      blocks.splice(1, 1);
+      removed = true;
+      return;
+    }
+    const last = blocks.at(-1)!;
+    last.text = (last.text ?? "") + "汉a".repeat(150);
+  }, 16);
+  runAgainstFullScan(snapshots);
+});

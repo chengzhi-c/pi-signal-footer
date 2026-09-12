@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- **性能 / Performance**：流式期间的输出估算改为增量累加——每个 chunk 只扫各块新增后缀，不再对累积全文全量重扫（50KB 工具参数 200 chunk 全程 ~26ms → ~4ms）；`≈` 读数语义与输出值不变。 / The streaming output estimate now accumulates incrementally — each chunk scans only the newly appended suffix instead of re-scanning the full text (~26ms → ~4ms across 200 chunks of 50KB tool arguments); `≈` readings and their values are unchanged.
 - **时长 / Duration**：工具执行期间 `◷` 继续前进，不再冻到 toolResult 落盘才补上。 / `◷` keeps advancing while tools run, instead of freezing until the toolResult lands.
 - **时长 / Duration**：不足一小时保留秒余数（`1m30s`），满 1 分钟后读数仍逐秒走；整分钟仍显示 `Nm`。 / Sub-hour durations keep leftover seconds (`1m30s`), so the reading still ticks after the first minute; exact minutes stay `Nm`.
 - **时长 / Duration**：单段工作间隙封顶从 10 分钟重标定为 15 分钟——两轮共 74 个真实会话实测单段工作最长 8.0 分钟，10 分钟封顶的余量已被侵蚀，超长单次生成会在流式中途让 `◷` 定格且落盘少计。 / The single work-gap cap is recalibrated from 10 to 15 minutes — across two rounds (74 real sessions) the longest measured work segment is 8.0 min, eroding the old margin; an extra-long generation used to freeze `◷` mid-stream and undercount once landed.

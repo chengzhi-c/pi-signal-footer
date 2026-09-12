@@ -254,38 +254,83 @@ function safeStringify(value: unknown): string {
  * parseStreamingJson 渐进填充，实测全程非空且单调增长），provider 私有的
  * partialJson/partialArgs 一律不碰——那才是会随版本漂移的形状。
  */
-export function estimateOutputTokens(
-  content: readonly { type: string; text?: string; thinking?: string; arguments?: unknown }[] | undefined,
-): number {
-  if (!content) return 0;
+export type EstimateContent = readonly { type: string; text?: string; thinking?: string; arguments?: unknown }[];
+
+export type OutputEstimator = { estimate(content: EstimateContent | undefined): number };
+
+/** 单个块的增量记账：kind 变（块被替换）或 len 收缩（非单调追加）即退回全量重扫，
+ *  输出值自动与一次性扫描一致；同长度直接复用（心跳期重渲染的快路径）。已知取舍：
+ *  同长度的中段变异检测不到——parseStreamingJson 单调追加下不存在该形态，且读数
+ *  是 ≈、liveTokens 取历史最大、message_end 由精确 usage 收口，三层兜底。 */
+type BlockMemo = { kind: string; len: number; cjk: number };
+
+/** 码元级区间比较而非逐字符正则调用：热路径（每个 chunk 事件）下开销更低；
+ *  代理对落在区间外按"其余"计，估算精度足够。from 之前的前缀是已记账部分，跳过。 */
+function countCjk(text: string, from: number): number {
   let cjk = 0;
-  let total = 0;
-  for (const block of content) {
-    const text =
-      block.type === "text" ? block.text
-      : block.type === "thinking" ? block.thinking
-      : block.type === "toolCall" ? safeStringify(block.arguments)
-      : undefined;
-    if (!text) continue;
-    total += text.length;
-    // 码元级区间比较而非逐字符正则调用：热路径（每个 chunk 事件全量扫描）下开销更低；
-    // 代理对落在区间外按"其余"计，估算精度足够。
-    for (let index = 0; index < text.length; index++) {
-      const code = text.charCodeAt(index);
-      if (
-        (code >= 0x2e80 && code <= 0x30ff)
-        || (code >= 0x3105 && code <= 0x312f)
-        || (code >= 0x3400 && code <= 0x4dbf)
-        || (code >= 0x4e00 && code <= 0x9fff)
-        || (code >= 0xac00 && code <= 0xd7a3)
-        || (code >= 0xf900 && code <= 0xfaff)
-        || (code >= 0xff00 && code <= 0xffef)
-      ) {
-        cjk++;
-      }
+  for (let index = from; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (
+      (code >= 0x2e80 && code <= 0x30ff)
+      || (code >= 0x3105 && code <= 0x312f)
+      || (code >= 0x3400 && code <= 0x4dbf)
+      || (code >= 0x4e00 && code <= 0x9fff)
+      || (code >= 0xac00 && code <= 0xd7a3)
+      || (code >= 0xf900 && code <= 0xfaff)
+      || (code >= 0xff00 && code <= 0xffef)
+    ) {
+      cjk++;
     }
   }
-  return cjk + Math.ceil((total - cjk) / 4);
+  return cjk;
+}
+
+function blockText(block: { type: string; text?: string; thinking?: string; arguments?: unknown }): string {
+  return block.type === "text" ? block.text ?? ""
+    : block.type === "thinking" ? block.thinking ?? ""
+    : block.type === "toolCall" ? safeStringify(block.arguments)
+    : "";
+}
+
+/** 单请求估算器：每个 message_update 喂入累积全文，只扫各块新增后缀（bench 实测
+ *  50KB 参数 200 chunk 全量重扫 20.6ms → 后缀 0.2ms）。估算状态随请求生灭。 */
+export function createOutputEstimator(): OutputEstimator {
+  const memos: BlockMemo[] = [];
+  return {
+    estimate(content) {
+      if (!content) {
+        memos.length = 0;
+        return 0;
+      }
+      let cjk = 0;
+      let total = 0;
+      for (let index = 0; index < content.length; index++) {
+        const block = content[index];
+        if (block === undefined) continue; // 稀疏数组按空块计，不打穿宿主渲染循环
+        const text = blockText(block);
+        const memo: BlockMemo | undefined = memos[index];
+        if (memo !== undefined && memo.kind === block.type && text.length >= memo.len) {
+          if (text.length > memo.len) {
+            memo.cjk += countCjk(text, memo.len);
+            memo.len = text.length;
+          }
+          cjk += memo.cjk;
+        } else {
+          const full = countCjk(text, 0);
+          memos[index] = { kind: block.type, len: text.length, cjk: full };
+          cjk += full;
+        }
+        total += text.length;
+      }
+      memos.length = content.length;
+      return cjk + Math.ceil((total - cjk) / 4);
+    },
+  };
+}
+
+/** 一次性估算 = 空记账状态的估算器；测试与基准的参照实现。 */
+export function estimateOutputTokens(content: EstimateContent | undefined): number {
+  return createOutputEstimator().estimate(content);
 }
 
 /** 项目槽位：完整路径，主目录缩写为 ~。返回弱化的上级目录与加粗的末级目录名。 */
