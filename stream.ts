@@ -33,6 +33,8 @@ export type StreamState = {
     estimator: OutputEstimator;
   } | null;
   lastRate: string;
+  /** 手动 /compact 期间 isIdle() 仍为 true，靠这对事件把 ◷ 接着往前走。 */
+  workHold: boolean;
 };
 
 const streamStates = new WeakMap<object, StreamState>();
@@ -40,7 +42,7 @@ const streamStates = new WeakMap<object, StreamState>();
 function streamStateFor(session: object): StreamState {
   let state = streamStates.get(session);
   if (!state) {
-    state = { timing: null, lastRate: "" };
+    state = { timing: null, lastRate: "", workHold: false };
     streamStates.set(session, state);
   }
   return state;
@@ -80,13 +82,25 @@ export function inFlightTokens(session: object): number {
   return streamStates.get(session)?.timing?.liveTokens ?? 0;
 }
 
-/** 在途工作时长：LLM 流式或 agent 仍忙（工具执行）时，从末条时间戳走到 now。
+/** 在途工作时长：LLM 流式、agent 仍忙（工具执行）或手动压缩 hold 时，从末条时间戳走到 now。
  *  与即将落盘的工作 gap 是同一段墙钟，数值先连续增长、落盘后由条目原地接管。 */
 export function inFlightWorkMs(session: object, lastTs: number, now: number, busy = false): number {
-  const streaming = streamStates.get(session)?.timing != null;
-  if (!streaming && !busy) return 0;
+  const state = streamStates.get(session);
+  const streaming = state?.timing != null;
+  if (!streaming && !busy && !state?.workHold) return 0;
   if (!Number.isFinite(lastTs)) return 0;
   return Math.min(Math.max(0, now - lastTs), WORK_GAP_CAP_MS);
+}
+
+/** 手动 /compact：session_before_compact 置 true，compact / compact_failed 置 false。
+ *  释放不创建新 state——footer 已关时 compact_failed 仍必须能清掉残留 hold。 */
+export function holdWork(session: object, held: boolean): void {
+  if (held) {
+    streamStateFor(session).workHold = true;
+    return;
+  }
+  const state = streamStates.get(session);
+  if (state) state.workHold = false;
 }
 
 export type StreamKind = "start" | "update" | "end";

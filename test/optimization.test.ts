@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createOutputEstimator, estimateOutputTokens, formatDuration } from "../format.ts";
 import { installFooter } from "../footer.ts";
-import { handleStream } from "../stream.ts";
+import { handleStream, holdWork } from "../stream.ts";
 import { DEFAULT_SETTINGS } from "../settings.ts";
 
 import { createApi, createContext, openFooter, pinLocale, renderLines, startSession, type Harness } from "./harness.ts";
@@ -60,14 +60,14 @@ test("A1: keeps sub-cap work gaps fully counted", async () => {
 });
 
 test("A1: sums work gaps and skips human gaps across stretches", async () => {
-  // 10s(assistant) + 2m(assistant，短于上限计满) + 10s(user→不计) = 130s → 2m
+  // 10s(assistant) + 2m(assistant，短于上限计满) + 10s(user→不计) = 130s → 2m10s
   const output = await renderDuration([
     { ts: "2026-01-01T00:00:00.000Z", role: "assistant" },
     { ts: "2026-01-01T00:00:10.000Z", role: "assistant" },
     { ts: "2026-01-01T00:02:10.000Z", role: "assistant" },
     { ts: "2026-01-01T00:02:20.000Z", role: "user" },
   ]);
-  assert.match(output, /◷ 2m/);
+  assert.match(output, /◷ 2m10s/);
   assert.doesNotMatch(output, /◷ 3m/);
 });
 
@@ -421,7 +421,7 @@ test("T3: a long working gap is counted, not capped at 2 minutes", async () => {
   // user → assistant 的 431s（7.2min）：真实会话里实测最长的一段 LLM 生成
   const context = roleGapHarness(431_000, "user", "assistant");
   await startSession(handlers, context);
-  assert.match(renderLines(context).join("\n"), /◷ 7m/);
+  assert.match(renderLines(context).join("\n"), /◷ 7m11s/);
 });
 
 test("T4: a human gap before a user entry does not count toward active time", async () => {
@@ -546,6 +546,106 @@ test("T12: duration does not jump when the toolResult entry lands", () => {
   const after = timeOf(fx.context);
   assert.equal(before, "40s");
   assert.equal(after, "40s");
+});
+
+// T13–T16：手动 /compact 不置 isIdle=false，靠 session_before_compact hold 让 ◷ 继续走
+test("T13: duration advances during a compact hold while idle", () => {
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  holdWork(fx.session, true);
+  fx.setNow(futureBase + 40_000);
+  assert.equal(timeOf(fx.context), "40s");
+});
+
+test("T14: releasing a compact hold without an entry drops in-flight time and stays frozen", () => {
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  holdWork(fx.session, true);
+  fx.setNow(futureBase + 40_000);
+  assert.equal(timeOf(fx.context), "40s");
+  holdWork(fx.session, false);
+  // 失败/取消的压缩没有落盘条目，这段墙钟不得留在 ◷ 里
+  assert.equal(timeOf(fx.context), "0m");
+  fx.setNow(futureBase + 90_000);
+  assert.equal(timeOf(fx.context), "0m");
+});
+
+test("T15: duration does not jump when the compaction entry lands", () => {
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  holdWork(fx.session, true);
+  fx.setNow(futureBase + 40_000);
+  const before = timeOf(fx.context);
+  fx.context.entries.push({
+    type: "compaction",
+    timestamp: fx.stamp(40_000),
+    usage: { cost: { total: 0.04 } },
+  });
+  holdWork(fx.session, false);
+  fx.setNow(futureBase + 40_000);
+  const after = timeOf(fx.context);
+  assert.equal(before, "40s");
+  assert.equal(after, "40s");
+});
+
+test("T16: session_before_compact holds via the extension handler, compact_failed releases", async () => {
+  const { handlers } = createApi();
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  await handlers.get("session_before_compact")?.(
+    { type: "session_before_compact" },
+    fx.context.ctx,
+  );
+  fx.setNow(futureBase + 40_000);
+  assert.equal(timeOf(fx.context), "40s");
+  await handlers.get("session_compact_failed")?.(
+    { type: "session_compact_failed" },
+    fx.context.ctx,
+  );
+  fx.setNow(futureBase + 90_000);
+  assert.equal(timeOf(fx.context), "0m");
+});
+
+test("T18: compact_failed still releases after the footer is turned off", async () => {
+  const { handlers, commands } = createApi();
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  await handlers.get("session_before_compact")?.(
+    { type: "session_before_compact" },
+    fx.context.ctx,
+  );
+  fx.setNow(futureBase + 40_000);
+  assert.equal(timeOf(fx.context), "40s");
+  await commands.get("signal-footer")!("off", fx.context.ctx);
+  await handlers.get("session_compact_failed")?.(
+    { type: "session_compact_failed" },
+    fx.context.ctx,
+  );
+  fx.setNow(futureBase + 90_000);
+  // liveClock footer 仍在（createApi 没在此 ctx 上装过 footer）；hold 必须被清掉
+  assert.equal(timeOf(fx.context), "0m");
+});
+
+test("T17: session_compact releases the hold after the compaction entry lands", async () => {
+  const { handlers } = createApi();
+  const fx = liveClockFixture();
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
+  await handlers.get("session_before_compact")?.(
+    { type: "session_before_compact" },
+    fx.context.ctx,
+  );
+  fx.setNow(futureBase + 40_000);
+  fx.context.entries.push({
+    type: "compaction",
+    timestamp: fx.stamp(40_000),
+    usage: { cost: { total: 0.04 } },
+  });
+  await handlers.get("session_compact")?.(
+    { type: "session_compact" },
+    fx.context.ctx,
+  );
+  fx.setNow(futureBase + 90_000);
+  assert.equal(timeOf(fx.context), "40s");
 });
 
 // ===== R（R10-P76）：估算器增量累加——输出值与全量扫描逐一相等 =====

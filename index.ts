@@ -22,7 +22,7 @@ import {
 } from "./settings.ts";
 
 import { installFooter } from "./footer.ts";
-import { handleStream, resetStreamState } from "./stream.ts";
+import { handleStream, holdWork, resetStreamState } from "./stream.ts";
 
 import {
   copyFor,
@@ -158,8 +158,8 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     clearConfiguredFooter(ctx);
   };
 
-  // footer 未启用（含宿主过旧）时不追踪流式事件：每 chunk 的全量估算扫描纯属浪费；
-  // 中途 on 后由下个 message_start 重建状态，无需补追。
+  // footer 未启用（含宿主过旧）时不追踪流式事件：不建估算器、不采样、不 hold；
+  // 中途 on 后由下个 message_start / session_before_compact 重建状态，无需补追。
   const shouldTrackStream = (): boolean => footerSupported && settings.enabled;
 
   return (pi: ExtensionAPI): void => {
@@ -171,6 +171,16 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     });
     pi.on("message_end", (event, ctx) => {
       if (shouldTrackStream()) handleStream("end", event.message, Date.now(), ctx.sessionManager);
+    });
+    // 手动 /compact 不置 isIdle=false；配对事件把 hold 卡住这段墙钟，自动压缩已在 agent run 内。
+    pi.on("session_before_compact", (_event, ctx) => {
+      if (shouldTrackStream()) holdWork(ctx.sessionManager, true);
+    });
+    pi.on("session_compact", (_event, ctx) => {
+      holdWork(ctx.sessionManager, false);
+    });
+    pi.on("session_compact_failed", (_event, ctx) => {
+      holdWork(ctx.sessionManager, false);
     });
 
     // session_start 覆盖会话替换和 reload。enabled=false 时不装 footer，使 off 能活过 reload。
