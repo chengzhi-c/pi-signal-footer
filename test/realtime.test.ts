@@ -310,3 +310,16 @@ test("R14: an exact end still freezes without the estimate marker", () => {
   assert.match(output, /500 tok\/s/);
   assert.doesNotMatch(output, /≈/);
 });
+
+test("R15: a non-finite usage.output falls back to the estimate, not a blank field", () => {
+  const { context, session, setNow } = streamFixture();
+  handleStream("start", { role: "assistant" }, 0, session);
+  setNow(1000);
+  handleStream("update", chunk(25), 1000, session);
+  setNow(2000);
+  // 非有限 output 不是可用的精确值：必须走估算回退（25×40 字符 ÷4 ÷1s = 250 tok/s），
+  // 而不是进入精确分支后被 formatSpeed 置空、整段空窗。
+  handleStream("end", { role: "assistant", usage: { output: Number.POSITIVE_INFINITY } }, 2000, session);
+  const output = openFooter(context).render(160).join("\n");
+  assert.match(output, /≈250 tok\/s/, "a non-finite exact value must keep the estimate reading, not blank the rate");
+});

@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- **速率 / Rate**：`usage.output` 为非有限值（异常适配层产出）时不再把速率字段置空——与中止、无 `usage` 一样回退到带 `≈` 的估算读数；收口判断与流式路径同一把 `finiteNonNegative` 尺。 / A non-finite `usage.output` (from a misbehaving adapter) no longer blanks the rate field; like aborted and usage-less responses it falls back to the `≈` estimate, using the same `finiteNonNegative` guard as the streaming path.
 - **速率 / Rate**：实时速率读数改为锚定「最后一个样本时刻」而非渲染墙钟——停顿期间保持最后一次有效实测，不再出现被拉伸窗口稀释的假衰减（实测 250 → 108 的下滑消失），恢复首帧也不被上一段与停顿混合稀释。 / The live rate is now anchored to the last sample instead of the render clock — a pause holds the last valid measurement instead of decaying through a stretched window (the measured 250 → 108 slide is gone), and the first frame after a pause is no longer diluted by the previous segment.
 - **速率 / Rate**：无 `usage` 收口（中止、部分 provider）时保留带 `≈` 的估算读数，速率字段不再整段空窗。 / When a response ends without `usage` (abort, some providers), the `≈` estimate is kept instead of the rate field going blank.
 - **输出 / Output**：`≈+N` 在途读数在 `end` 后保留到条目落盘才释怀，`↑` 总数不再出现"回落一帧再跳上去"的中间帧（3.2k → 2.0k → 5.2k 变成 3.2k → 3.2k → 5.2k）。 / The `≈+N` in-flight reading survives `end` until the entry lands, so `↑` no longer dips for a frame (3.2k → 2.0k → 5.2k is now 3.2k → 3.2k → 5.2k).

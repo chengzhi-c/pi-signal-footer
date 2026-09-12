@@ -194,7 +194,10 @@ export function handleStream(
   // settleStream 释怀，↑ 不会在交接帧掉一截。entryCount 不可得时退回旧行为。
   state.pending = entryCount >= 0 ? { tokens: liveTokens, entries: entryCount } : null;
   state.timing = null;
-  if (message.usage?.output && ms > 0) state.lastRate = formatSpeed(message.usage.output, ms);
+  // 与 update 路径同一把 finiteNonNegative 尺：非有限/非数值的 output 不是可用的
+  // 精确值，必须落回估算分支，而不是进入 formatSpeed 后被置空成整段空窗。
+  const billed = finiteNonNegative(message.usage?.output);
+  if (billed > 0 && ms > 0) state.lastRate = formatSpeed(billed, ms);
   // 中止或 provider 不报 usage 时用本请求已观测的估算收口：读数不空窗，且保留 ≈ 语义。
   else if (liveTokens > 0 && ms > 0) {
     const estimated = formatSpeed(liveTokens, ms);
