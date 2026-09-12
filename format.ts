@@ -22,7 +22,7 @@ const COPY = {
       "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
       "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
       "◷ agent 工作时长（人类间隔不计；单段封顶 15 分钟）· 轮次（用户消息数）。",
-      "速率：流式中 ≈ 实时估算，结束后定格精确值（tok/s）。",
+      "速率：≈ 为下限估算，只在新 chunk 到达时变化；结束后定格精确值（tok/s）。",
       "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
       "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
       "关闭图例：/signal-footer hide；外观切换：/signal-footer theme",
@@ -61,7 +61,7 @@ const COPY = {
       "Model: provider › icon model (matched by family); ✦ thinking; ⎇ git branch.",
       "Project: full path (~ = home); session name follows after ·.",
       "◷ agent work time (human gaps excluded; 15-min cap) · turns (user msgs).",
-      "Rate: ≈ live estimate while streaming, exact once done (tok/s).",
+      "Rate: ≈ lower bound, moves only on new chunks; exact once done (tok/s).",
       "⇄ MCP connected/enabled: muted = idle lazy connect; LSP ✗ = failed servers.",
       "When narrow, yield: context bar/numbers → project → branch/thinking → model.",
       "Hide legend: /signal-footer hide; theme: /signal-footer theme",
@@ -247,14 +247,21 @@ function safeStringify(value: unknown): string {
 }
 
 /**
- * 流式期间的输出 token 估算：CJK/韩文音节/注音 ≈1 tok/字，其余 ≈4 字符/tok。
+ * 流式期间的输出 token 估算：CJK/韩文音节/注音 ≈1 tok/字，其余按块类型给字符密度。
  * 只用于实时速率的 ≈ 前缀读数；精确值一律由 message_end 的 usage 收口。
  * toolCall 参数计入：实测占 agentic 会话可估输出的一半以上，漏掉它会让最常见的
  * 工具型回合整段流式没有读数。只读公开类型字段 arguments（宿主在流式期间用
  * parseStreamingJson 渐进填充，实测全程非空且单调增长），provider 私有的
  * partialJson/partialArgs 一律不碰——那才是会随版本漂移的形状。
+ *
+ * 非 CJK 密度实测标定（478 条真实 assistant 消息的 estimate/usage.output）：
+ * 工具参数是 JSON（引号、括号、键名、短值密集），密度约 1.95 字符/token，
+ * 按正文的 4 字符/token 计会让 ≈ 读数系统性腰斩；正文与思考按 4 字符/token
+ * 与实测（3.9 字符/token）相符。取 2 为保守留量，读数仍在下限侧。
  */
 export type EstimateContent = readonly { type: string; text?: string; thinking?: string; arguments?: unknown }[];
+
+const NON_CJK_CHARS_PER_TOKEN: Readonly<Record<string, number>> = { text: 4, thinking: 4, toolCall: 2 };
 
 export type OutputEstimator = { estimate(content: EstimateContent | undefined): number };
 
@@ -303,11 +310,12 @@ export function createOutputEstimator(): OutputEstimator {
         return 0;
       }
       let cjk = 0;
-      let total = 0;
+      let otherCost = 0;
       for (let index = 0; index < content.length; index++) {
         const block = content[index];
         if (block === undefined) continue; // 稀疏数组按空块计，不打穿宿主渲染循环
         const text = blockText(block);
+        const perToken = NON_CJK_CHARS_PER_TOKEN[block.type] ?? 4;
         const memo: BlockMemo | undefined = memos[index];
         if (memo !== undefined && memo.kind === block.type && text.length >= memo.len) {
           if (text.length > memo.len) {
@@ -315,15 +323,16 @@ export function createOutputEstimator(): OutputEstimator {
             memo.len = text.length;
           }
           cjk += memo.cjk;
+          otherCost += (text.length - memo.cjk) / perToken;
         } else {
           const full = countCjk(text, 0);
           memos[index] = { kind: block.type, len: text.length, cjk: full };
           cjk += full;
+          otherCost += (text.length - full) / perToken;
         }
-        total += text.length;
       }
       memos.length = content.length;
-      return cjk + Math.ceil((total - cjk) / 4);
+      return cjk + Math.ceil(otherCost);
     },
   };
 }

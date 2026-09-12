@@ -36,6 +36,7 @@ import type { FooterSettings, FooterTheme } from "./settings.ts";
 import {
   inFlightTokens,
   inFlightWorkMs,
+  settleStream,
   streamRate,
   WORK_GAP_CAP_MS,
 } from "./stream.ts";
@@ -83,6 +84,16 @@ function addUsage(totals: UsageTotals, usage: UsageLike | undefined): void {
 /** 只有 user 条目代表"人在场才发生"；custom/compaction 等扩展写入的条目按 agent 活动计。 */
 function isHumanEntry(entry: SessionEntry): boolean {
   return entry.type === "message" && entry.message.role === "user";
+}
+
+/** 这些条目由人（或启动流程）写入，其前面的空档不是 agent 工作：切模型/改思考等级
+ *  可能发生在闲置期，会话命名与标签更是纯人工动作。实测 38 个真实会话里它们吞掉
+ *  约 4.9% 的计数。压缩与摘要条目不走这里——生成摘要确实是工作。 */
+const NON_WORK_ENTRY_TYPES = new Set<string>(["model_change", "thinking_level_change", "session_info", "label"]);
+
+/** 关闭间隙的条目是否代表"人机边界"：它前面的墙钟不计入 agent 工作时长。 */
+function closesHumanGap(entry: SessionEntry): boolean {
+  return isHumanEntry(entry) || NON_WORK_ENTRY_TYPES.has(entry.type);
 }
 
 function entryUsage(entry: SessionEntry): UsageLike | undefined {
@@ -145,11 +156,12 @@ function computeSessionDerived(entries: SessionEntries): DerivedResult {
       session.firstTs = Number.isNaN(session.firstTs) ? ts : Math.min(session.firstTs, ts);
       session.lastTs = Number.isNaN(session.lastTs) ? ts : Math.max(session.lastTs, ts);
       // 活跃口径：gap 的含义由后继条目决定——user 条目只在人按下发送时落盘，
-      // 它前面的空档是人类间隔（不计）；其余条目前面的空档是 agent 在生成/执行
-      // 工具（计满，仅受病态上限约束）。时间倒流（手工编辑）计 0。
+      // 它前面的空档是人类间隔（不计）；模型切换/思考等级/会话命名/标签同理（不计）；
+      // 其余条目前面的空档是 agent 在生成/执行工具（计满，仅受病态上限约束）。
+      // 时间倒流（手工编辑）计 0。
       if (!Number.isNaN(prevTs)) {
         const gap = ts - prevTs;
-        session.activeMs += gap > 0 && !isHumanEntry(entry) ? Math.min(gap, WORK_GAP_CAP_MS) : 0;
+        session.activeMs += gap > 0 && !closesHumanGap(entry) ? Math.min(gap, WORK_GAP_CAP_MS) : 0;
       }
       prevTs = ts;
     }
@@ -459,7 +471,7 @@ function renderFooter(
     },
     settings,
     locale,
-    lastRate: streamRate(ctx.sessionManager, now),
+    lastRate: streamRate(ctx.sessionManager),
     inflight: inFlightTokens(ctx.sessionManager),
   };
   return layoutLines(
@@ -502,7 +514,10 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings, n
       dispose: unsubscribe,
       invalidate() {},
       render(width: number): string[] {
-        const derived = memoizedDerived(ctx.sessionManager.getEntries());
+        const entries = ctx.sessionManager.getEntries();
+        // 落盘一旦完成（条目数增长），end 时保留的在途读数即释怀。
+        settleStream(ctx.sessionManager, entries.length);
+        const derived = memoizedDerived(entries);
         return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale, now());
       },
     };

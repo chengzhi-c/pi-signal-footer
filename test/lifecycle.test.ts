@@ -343,15 +343,16 @@ test("tracks the response rate live while streaming and freezes the exact value 
   handleStream("start", { role: "assistant" }, 0, session);
   assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/, "no rate before the first token");
 
-  // 8000 个拉丁字符 ≈ 2000 token；tFirst=1000，now=3000 → 2000 tok / 2 s = 1000 tok/s
+  // 实测窗口需要一段跨度：t=1000 时 2000 token，t=2000 时 3000 token → 1000 tok/s
   handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(8000) }] }, 1000, session);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(12000) }] }, 2000, session);
   assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
 
-  // provider 重发更小的 partial：liveTokens 保持历史最大值（2000 tok / 3 s ≈ 667）
-  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(4000) }] }, 4000, session);
-  fakeNow = 4000;
-  assert.match(openFooter(context).render(160).join("\n"), /≈667 tok\/s/);
+  // 渲染不推进读数：墙钟推到 9000，读数仍锚在最后一个样本，不随闲置衰减。
+  fakeNow = 9000;
+  assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
 
+  // tFirst=1000 → 3000 tok / 5 s = 600 tok/s
   handleStream("end", { role: "assistant", usage: { output: 3000 } }, 6000, session);
   const out = openFooter(context).render(160).join("\n");
   assert.match(out, /600 tok\/s/);
@@ -367,8 +368,10 @@ test("uses streamed usage.output when the provider pushes it mid-stream", () => 
   );
   const session = context.ctx.sessionManager;
   handleStream("start", { role: "assistant" }, 0, session);
-  // tFirst=2000，now=5000 → 1500 tok / 3 s = 500 tok/s
+  // content 全空：读数只可能来自流式 usage.output。t=2000→1500，t=3000→2000，
+  // 1s 跨度内增 500 tok → 500 tok/s。
   handleStream("update", { role: "assistant", usage: { output: 1500 } }, 2000, session);
+  handleStream("update", { role: "assistant", usage: { output: 2000 } }, 3000, session);
   assert.match(openFooter(context).render(160).join("\n"), /≈500 tok\/s/);
 });
 
@@ -385,7 +388,7 @@ test("shows no live rate while only empty or redacted blocks have streamed", () 
   assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
 });
 
-test("drops the live estimate when the response ends without output usage", () => {
+test("keeps the observed estimate when the response ends without output usage", () => {
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   installFooter(
     context.ctx as unknown as Parameters<typeof installFooter>[0],
@@ -395,9 +398,13 @@ test("drops the live estimate when the response ends without output usage", () =
   const session = context.ctx.sessionManager;
   handleStream("start", { role: "assistant" }, 0, session);
   handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(8000) }] }, 1000, session);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(12000) }] }, 2000, session);
   assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
 
-  // abort/error 收口：end 携带零 usage 时不得残留 ≈ 估算，也不得显示 0 tok/s
+  // abort/error 收口：end 不带 output usage 时用本请求已观测的估算收口，读数不空窗。
+  // tFirst=1000 → 3000 tok / 3 s = 1000 tok/s。
   handleStream("end", { role: "assistant", usage: { output: 0 } }, 4000, session);
-  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
+  const out = openFooter(context).render(160).join("\n");
+  assert.match(out, /◷ ≈1000 tok\/s/, "an unknown output count must keep the estimate, not blank the rate");
+  assert.doesNotMatch(out, /◷ 0 tok\/s/, "a zero rate must never be shown");
 });

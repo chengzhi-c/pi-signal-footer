@@ -71,6 +71,16 @@ function hideLegend(ctx: ExtensionContext): void {
   ctx.ui.setWidget(LEGEND_WIDGET_KEY, undefined);
 }
 
+// 宿主在扩展收到 message_end 之后才把消息落盘，故此刻的条目数是"落盘完成"的判据
+// （footer 渲染时条目数一旦增长即释怀在途读数）。取不到时传 -1，退回旧行为。
+function entryCountOf(ctx: ExtensionContext): number {
+  try {
+    return ctx.sessionManager.getEntries().length;
+  } catch {
+    return -1;
+  }
+}
+
 export function createExtension(options: { agentDir?: string; hostVersion?: string } = {}): (pi: ExtensionAPI) => void {
   const agentDir = () => options.agentDir ?? getAgentDir();
   const hostVersion = options.hostVersion ?? VERSION;
@@ -171,7 +181,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
       if (shouldTrackStream()) handleStream("update", event.message, Date.now(), ctx.sessionManager);
     });
     pi.on("message_end", (event, ctx) => {
-      if (shouldTrackStream()) handleStream("end", event.message, Date.now(), ctx.sessionManager);
+      if (shouldTrackStream()) handleStream("end", event.message, Date.now(), ctx.sessionManager, entryCountOf(ctx));
     });
     // 手动 /compact 不置 isIdle=false；配对事件把 hold 卡住这段墙钟，自动压缩已在 agent run 内。
     pi.on("session_before_compact", (_event, ctx) => {

@@ -547,6 +547,17 @@ test("legend credits tool-call arguments inside the in-flight estimate", () => {
   }
 });
 
+test("legend states the live rate's stall behavior and lower-bound estimate", () => {
+  // 本轮把"停顿回退全程平均"改成"保持最后一次实测"，并把 ≈ 定性为下限估算；
+  // 图例若继续承诺旧口径（或反过来只改实现不改文案）即红，逼两处回到同一状态。
+  for (const locale of ["zh", "en"] as const) {
+    const guide = legendLines(locale).join(" ").toLowerCase();
+    assert.ok(guide.includes("chunk"), `${locale} legend must say the rate moves only on new chunks`);
+    assert.ok(guide.includes("下限") || guide.includes("lower bound"), `${locale} legend must mark ≈ as a lower bound`);
+    assert.ok(!guide.includes("全程平均") && !guide.includes("whole-response average"), `${locale} legend still promises the retired average fallback`);
+  }
+});
+
 test("vivid palette repaints stat groups while classic stays neutral", () => {
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: "MCP 1/1" });
   context.entries.push({

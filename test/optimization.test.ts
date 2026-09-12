@@ -227,16 +227,24 @@ test("A3: the live rate falls when streaming decelerates", () => {
   assert.ok(slowRate < fastRate / 2, `windowed rate must fall with deceleration: fast=${fastRate} slow=${slowRate}`);
 });
 
-test("A3: falls back to the whole-average rate before the window fills", () => {
+test("A3: an immature window falls back to the running average, anchored at the last sample", () => {
   const { context, session, setNow } = streamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
-  setNow(100);
-  // 单次 update 后 100ms 内：窗口未成熟，回退全程平均，不得显示 0
-  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(8000) }] }, 100, session);
-  setNow(200);
-  const output = openFooter(context).render(160).join("\n");
-  // 全程平均 2000 tok / 0.1s = 20000 tok/s
-  assert.match(output, /≈20000 tok\/s/);
+  setNow(1000);
+  // 只有一个样本：跨度 0，任何速率都是除零的产物，必须不出读数。
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(400) }] }, 1000, session);
+  setNow(1000);
+  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
+
+  // 第二样本跨度 200ms 未满最小窗口，退回"本请求已有平均"：分子是本请求累计 token，
+  // 分母同样止于末样本。200 tok / 200ms = 1000 tok/s。
+  setNow(1200);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(800) }] }, 1200, session);
+  assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
+
+  // 渲染不推进读数：墙钟再走 30s，分母不得把样本之后的闲置算进去。
+  setNow(31_200);
+  assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
 });
 
 test("A3: the window survives sustained chunk rates above the old sample cap", () => {
@@ -287,33 +295,28 @@ test("A3: the sample buffer stays within its documented safety cap", () => {
 
 // ===== B1 边界补强：只补真实会踩的，不凑覆盖率 =====
 
-test("B1: a long streaming pause prunes stale samples and falls back cleanly", () => {
+test("B1: a long streaming pause holds the last measurement instead of collapsing", () => {
   const { context, session, setNow } = streamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
+  // 预热出一次有效实测：500ms 内 1000 tok → 2000 tok/s
+  setNow(500);
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(4000) }] }, 500, session);
   setNow(1000);
   handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(8000) }] }, 1000, session);
-  // 暂停 60 秒后恢复：push 修剪把过期样本挤出，新窗口只有单样本（未成熟），
-  // 回退全程平均 2010 tok / 60.5 s ≈ 33——不产生被暂停分母稀释的窗口假速率，
-  // 也不在恢复瞬间谎报暂停前的速率。
+  setNow(1000);
+  assert.match(openFooter(context).render(160).join("\n"), /≈2000 tok\/s/);
+
+  // 暂停 60 秒后恢复：读数保持最后一次有效实测（2000），不再随墙钟衰减；
+  // 旧口径给被暂停分母稀释的 2010 tok / 60.5 s ≈ 33。
   setNow(61_000);
+  const stalled = openFooter(context).render(160).join("\n");
+  assert.match(stalled, /≈2000 tok\/s/);
+  assert.doesNotMatch(stalled, /≈33 tok\/s/);
+
   handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(8040) }] }, 61_000, session);
   setNow(61_500);
-  const output = openFooter(context).render(160).join("\n");
-  assert.match(output, /≈33 tok\/s/);
-});
-
-test("B1: a stalled stream renders the whole average, not a stretched-window rate", () => {
-  const { context, session, setNow } = streamFixture();
-  handleStream("start", { role: "assistant" }, 0, session);
-  setNow(100);
-  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(400) }] }, 100, session);
-  setNow(200);
-  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(800) }] }, 200, session);
-  // 暂停后无新 chunk 直接渲染：样本未被驱逐，拉伸窗口会算 (200-100)/2.9s ≈ 34；
-  // 全程平均 200 tok / 2.9s ≈ 69 才是声明的回退口径。
-  setNow(3000);
-  const output = openFooter(context).render(160).join("\n");
-  assert.match(output, /≈69 tok\/s/);
+  // 恢复段尚未成熟（跨度 0 < 500ms）时同样沿用最后一次实测，不被上一段或暂停混入。
+  assert.match(openFooter(context).render(160).join("\n"), /≈2000 tok\/s/);
 });
 
 // ===== A4：流式期间 ↑ 叠加在途输出估算 =====
@@ -364,16 +367,17 @@ test("B1: non-assistant usage never updates the cache ratio snapshot", async () 
 // ===== A5（R7-P69）：实时准确性收口——toolCall 估算、角色化 gap 记账、流式活刻度 =====
 
 // T1 + T9：估算纳入 toolCall 参数（宿主公开字段 arguments，流式期间由 parseStreamingJson 渐进填充）
-test("T1: tool-call arguments are estimated like text blocks", () => {
-  // stringify 包裹符（{"content":"…"} 共 13 字符）计入估算——口径本就是字符级近似
-  assert.equal(estimateOutputTokens([{ type: "toolCall", arguments: { content: "x".repeat(12000) } } as never]), 3004);
-  // 与 text 块并存时两块都计（text ceil(4/4)=1 + args ceil(2013/4)=504）
+test("T1: tool-call arguments are estimated at their measured JSON density", () => {
+  // 非 CJK 密度按块类型给：工具参数是 JSON，实测 1.95 字符/token（478 条真实消息），
+  // 取 2 为保守留量；正文与思考仍按 4。stringify 包裹符一并计入（口径本就是字符级近似）。
+  assert.equal(estimateOutputTokens([{ type: "toolCall", arguments: { content: "x".repeat(12000) } } as never]), 6007);
+  // 与 text 块并存时两块各按自己的密度计（text ceil(4/4)=1 + args ceil(2014/2)=1007）
   assert.equal(
     estimateOutputTokens([
       { type: "text", text: "abcd" },
       { type: "toolCall", arguments: { content: "y".repeat(2000) } },
     ] as never),
-    505,
+    1008,
   );
 });
 
@@ -400,17 +404,18 @@ test("T2: a tool-call-only stream surfaces a live rate and an in-flight estimate
   }
   setNow(400 * 100);
   const output = openFooter(context).render(160).join("\n");
-  // 12000 字符 ≈ 3000 tok → 在途 ≈+3.0k；3000 tok / 40s = ≈75 tok/s
-  assert.match(output, /≈\+3\.0k/);
-  assert.match(output, /≈75 tok\/s/);
+  // 12000 字符参数 ≈ 6007 tok（JSON 密度 2）→ 在途 ≈+6.0k；
+  // 回看窗口覆盖最后 1500ms（15 个 chunk）：(6007-5782) tok / 1.5s = ≈150 tok/s
+  assert.match(output, /≈\+6\.0k/);
+  assert.match(output, /≈150 tok\/s/);
 });
 
 // T9：同一条消息同时带 usage.output 与 toolCall 参数时按历史最大合并，不做加法
 test("T9: usage.output and the tool-call estimate merge by max, never by sum", () => {
   const { context, session, setNow } = streamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
-  // 估算口径：12000 字符参数 ≈ 3004 tok；provider 报的 usage.output 更小（1000）。
-  // 若两处读数被错误相加，在途会变成 ≈+4.0k。
+  // 估算口径：12000 字符参数 ≈ 6007 tok；provider 报的 usage.output 更小（1000）。
+  // 若两处读数被错误相加，在途会变成 ≈+7.0k。
   handleStream("update", {
     role: "assistant",
     usage: { output: 1000 },
@@ -418,8 +423,8 @@ test("T9: usage.output and the tool-call estimate merge by max, never by sum", (
   }, 1000, session);
   setNow(1000);
   const output = openFooter(context).render(160).join("\n");
-  assert.match(output, /≈\+3\.0k/);
-  assert.doesNotMatch(output, /≈\+4\.0k/);
+  assert.match(output, /≈\+6\.0k/);
+  assert.doesNotMatch(output, /≈\+7\.0k/);
 });
 
 // T3/T4/T5：gap 按后继条目角色记账——工作计满（封顶 15min），人类间隔不计
