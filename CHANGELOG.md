@@ -4,6 +4,7 @@
 
 ## Unreleased / 未发布
 
+- **MCP 显示 / MCP visibility**：无扩展连接状态时，显示原生已发现非隐藏工具数；未发现工具时回退到扩展注册数。灰色明确区分工具/注册与连接健康，API 缺失或异常时保持兼容。 / Without a published connectivity status, shows discovered non-hidden native MCP tools, falling back to extension registrations when no tools are found. Muted tools/reg labels are not health counts; missing or unavailable APIs remain compatible.
 - **实时读数 / Live readings**：`≈` 明确为可能高估或低估的近似值；变化的正 provider 用量校准在途输出，向下纠正时重置速率样本。单样本不报速率，空更新不启动首输出时钟。 / `≈` means approximation; changed positive provider usage calibrates in-flight output, resetting rate samples on downward corrections. One sample has no rate; empty updates do not start the output clock.
 - **交接与开关 / Handoff and toggles**：仅同一最终消息落盘才清在途后缀，无关 custom 条目不误清。off 清流式、速率与压缩临时状态，on 不补造漏过的读数。 / Only the same final message landing clears the pending suffix; unrelated custom entries do not. Off clears transient stream/rate/compaction state; on does not reconstruct missed readings.
 - **工作时长 / Work time**：启用时在 agent/压缩开始写不进模型上下文的工作起点，排除此前空闲；手动压缩的实时、落盘与重载一致，失败/取消释放计时。 / Work-start entries outside model context exclude prior idle time; live, landed and reloaded manual-compaction duration agree, with holds released on failure/cancellation.

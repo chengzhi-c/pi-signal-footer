@@ -80,10 +80,10 @@ pi install npm:pi-signal-footer
 
 ## MCP / LSP 排查
 
-状态栏读取扩展发布的状态，不探测私有连接状态。已识别的 LSP 失败排在最前，接着是 MCP 部分连接，再是按 key 稳定排列的正常/未知状态；未知文案保留原有颜色。MCP 零连接可能是懒连接尚未激活，不代表故障。
+状态栏读取公开扩展状态与 MCP 工具/注册列表，不探测私有连接状态。已识别的 LSP 失败排在最前，接着是 MCP 部分连接，再是按 key 稳定排列的正常/未知状态；未知文案保留原有颜色。MCP 零连接可能是懒连接尚未激活，不代表故障。
 
 - LSP：pi-lens 需发布 `pi-lens-lsp`。支持完整档（`LSP Active: …` / `LSP Failed: …`）与紧凑档（`LSP ✓` / `LSP ✗`）；`LSP Inactive` 主动隐藏。用 `/lens-health`、`/lens-tools` 检查，并确认是否启用了 `lens-hide-lsp-status`。加宽终端排除截断。
-- MCP：可识别的连接数来自 pi-mcp-adapter 等发布状态的扩展。Pi 1.0.0 原生 `getMcpServers()` 是注册列表，不是已连/启用的健康统计，因此不伪造原生连接数。使用 `/mcp` 排查，不为一个显示芯片重复安装 adapter。
+- MCP：优先采用 pi-mcp-adapter 等扩展发布的、可识别的已连/启用状态；没有时，`MCP 工具 N` 显示公开 `getAllTools()` 已发现的非隐藏工具（原生 `mcp__` 名称或命名空间，含 direct/codemode/deferred 工具）。未发现工具时，`MCP 注册 N` 显示可选 `getMcpServers()` 中的**扩展注册项**，不代表原生 `mcp.json` 的完整配置列表。两类回退均为灰色，**不是连接健康计数**，随状态栏重绘更新，不轮询。原生工具发现前，仅在配置文件中的服务器可能暂时没有芯片；API 缺失或不可用时不伪造零值。用 `/mcp` 查看真实服务器状态，并加宽终端排除截断；不为一个显示芯片重复安装 adapter。
 
 ## 开发验证
 

@@ -80,10 +80,10 @@ Settings live in `pi-signal-footer.json` under Pi's agent directory (usually `~/
 
 ## MCP / LSP troubleshooting
 
-This footer reads extension statuses, not private connection state. Known LSP failures come first, then partial MCP connections, then normal/unknown statuses in stable key order. Unknown text keeps its original colors. Zero MCP connections can mean idle lazy connections, not failure.
+This footer reads public extension statuses and MCP tool/registration inventories, not private connection state. Known LSP failures come first, then partial MCP connections, then normal/unknown statuses in stable key order. Unknown text keeps its original colors. Zero MCP connections can mean idle lazy connections, not failure.
 
 - LSP: pi-lens must publish `pi-lens-lsp`. Full (`LSP Active: …` / `LSP Failed: …`) and compact (`LSP ✓` / `LSP ✗`) forms are supported; `LSP Inactive` is intentionally hidden. Check `/lens-health` and `/lens-tools`, and whether `lens-hide-lsp-status` is enabled. Widen the terminal to rule out clipping.
-- MCP: recognized counts come from a status-publishing extension such as pi-mcp-adapter. Pi 1.0.0’s native `getMcpServers()` lists registrations, not connected/enabled health counts, so no native count is fabricated. Inspect `/mcp`; do not install a duplicate adapter just to get a chip.
+- MCP: a recognized connected/enabled status from an extension such as pi-mcp-adapter takes priority. Without one, `MCP tools N` shows discovered non-hidden tools from public `getAllTools()` (native `mcp__` names or namespaces, including direct/codemode/deferred tools). If none are found, `MCP reg N` shows **extension registrations only** from optional `getMcpServers()`, not the full native `mcp.json` list. Both inventories are muted and are **not connection health counts**. They refresh on footer redraw, without polling. Before native tools are discovered, a config-only server may have no chip; missing/unavailable APIs do not fabricate a zero. Inspect `/mcp` for actual server state, and widen the terminal to rule out clipping. Do not install a duplicate adapter just to get a chip.
 
 ## Development checks
 

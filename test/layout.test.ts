@@ -16,6 +16,7 @@ import {
   pinLocale,
   renderLines,
   startSession,
+  tempAgentDir,
   type ThemeStub,
 } from "./harness.ts";
 
@@ -574,6 +575,79 @@ test("keeps the context bar within its 3..20 decoration budget", async () => {
         assert.ok(inner >= 3 && inner <= 20, `context bar width must stay in 3..20, got ${inner} at width ${width}: ${line}`);
       }
     }
+  }
+});
+
+test("shows native MCP tools without extension status and refreshes on redraw", async () => {
+  const tools = [
+    { name: "mcp__docs__read", exposure: "direct" },
+    { name: "mcp__docs__search", exposure: "deferred" },
+    { name: "namespaced-tool", exposure: "codemode", namespace: { name: "mcp__docs" } },
+    { name: "mcp__docs__withdrawn", exposure: "hidden" },
+    { name: "read", exposure: "direct" },
+  ];
+  const { handlers, commands, agentDir } = createApi(tempAgentDir(), "1.0.0", [], {
+    getAllTools: () => tools,
+    getMcpServers: () => [],
+  });
+  pinLocale(agentDir, "en");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  const colors = new Map<string, string>();
+  const theme = { ...createTheme(), fg: (color: string, text: string) => { colors.set(text, color); return text; } };
+  const footer = openFooter(context, theme);
+  assert.match(footer.render(160).join("\n"), /⇄ MCP tools 3/);
+  assert.equal(colors.get("tools 3"), "muted", "discovery is not connection health");
+  tools.splice(0, 3);
+  assert.doesNotMatch(footer.render(160).join("\n"), /MCP/, "hidden tools do not keep the inventory visible");
+  tools.push({ name: "mcp__docs__new", exposure: "codemode" });
+  assert.match(footer.render(160).join("\n"), /MCP tools 1/, "same component sees later discovery");
+  await commands.get("signal-footer")!("theme vivid", context.ctx);
+  assert.match(renderLines(context, 160).join("\n"), /🔌 MCP tools 1/);
+  await commands.get("signal-footer")!("locale zh", context.ctx);
+  assert.match(renderLines(context, 160).join("\n"), /🔌 MCP 工具 1/);
+  const ansiFooter = openFooter(context, createTheme({ ansi: true }));
+  for (const width of [1, 40, 76, 112, 160]) {
+    for (const line of ansiFooter.render(width)) assert.ok(visibleWidth(line) <= width);
+  }
+});
+
+test("prefers reported MCP connectivity over native inventories", async () => {
+  let reads = 0;
+  const { handlers, agentDir } = createApi(tempAgentDir(), "1.0.0", [], {
+    getAllTools: () => { reads++; return [{ name: "mcp__docs__read" }]; },
+    getMcpServers: () => { reads++; return [{}]; },
+  });
+  pinLocale(agentDir, "en");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: "MCP 1/3" });
+  await startSession(handlers, context);
+  const footer = openFooter(context);
+  for (const status of ["MCP 1/3", "MCP 0/3", "MCP 0/0"]) {
+    context.extensionStatuses.set("mcp", status);
+    const output = footer.render(160).join("\n");
+    if (status === "MCP 0/0") assert.doesNotMatch(output, /MCP/);
+    else assert.ok(output.includes(status));
+    assert.doesNotMatch(output, /tools|reg/);
+  }
+  assert.equal(reads, 0, "reported connectivity suppresses inventory reads");
+});
+
+test("falls back to extension registrations and tolerates missing or failing MCP APIs", async () => {
+  const unavailable = () => { throw new Error("runtime unavailable"); };
+  for (const [inventory, expected] of [
+    [{ getAllTools: () => [], getMcpServers: () => [{}, {}] }, "MCP reg 2"],
+    [{ getAllTools: unavailable, getMcpServers: () => [{}, {}] }, "MCP reg 2"],
+    [{ getAllTools: unavailable, getMcpServers: unavailable }, undefined],
+    [{}, undefined],
+  ] as const) {
+    const { handlers, agentDir } = createApi(tempAgentDir(), "1.0.0", [], inventory);
+    pinLocale(agentDir, "en");
+    const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+    await startSession(handlers, context);
+    const output = renderLines(context, 160).join("\n");
+    assert.match(output, /gpt-test/);
+    if (expected) assert.ok(output.includes(expected), output);
+    else assert.doesNotMatch(output, /MCP/, "unavailable is not a made-up zero");
   }
 });
 

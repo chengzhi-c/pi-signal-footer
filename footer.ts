@@ -8,6 +8,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
 
 import {
+  copyFor,
   finiteNonNegative,
   formatCacheHitRatio,
   formatContext,
@@ -289,17 +290,40 @@ function modelField(
   return parts.join(pipe);
 }
 
+const MCP_TOOL_PREFIX = "mcp__";
+type McpInfoProvider = {
+  getAllTools?: () => readonly { name: string; exposure?: string; namespace?: { name: string } }[];
+  getMcpServers?: () => readonly unknown[];
+};
+
+/** 公开工具/扩展注册信息不含连接健康；读取失败保持未知，不编造零值。 */
+function readMcpInventory(source: McpInfoProvider | undefined, locale: ReturnType<typeof resolveLocale>): string | undefined {
+  const text = copyFor(locale);
+  try {
+    const tools = source?.getAllTools?.().filter((tool) => tool.exposure !== "hidden"
+      && (tool.namespace?.name.startsWith(MCP_TOOL_PREFIX) || tool.name.startsWith(MCP_TOOL_PREFIX))).length ?? 0;
+    if (tools > 0) return text.mcpTools(tools);
+  } catch {}
+  try {
+    const registered = source?.getMcpServers?.().length ?? 0;
+    if (registered > 0) return text.mcpRegistered(registered);
+  } catch {}
+  return undefined;
+}
+
 /**
  * 扩展状态槽（右下角）：识别 pi-mcp-adapter / pi-lens 的已知文案后按本插件色板重排，
  * 未知文案原样放行（保留源插件着色），对方改版时只会退化为原文而不会崩。
  */
-function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palette: Palette): string | undefined {
+function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palette: Palette, locale: ReturnType<typeof resolveLocale>, mcpInfo?: McpInfoProvider): string | undefined {
   const entries = Array.from(footerData.getExtensionStatuses().entries())
     .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
   const chips: { text: string; priority: number }[] = [];
+  let hasMcpStatus = false;
   for (const [, text] of entries) {
     const mcp = parseMcpStatus(text);
     if (mcp) {
+      hasMcpStatus = true;
       if (mcp.enabled > 0) {
         // 零连接可以是懒连接未激活，不推断故障；已识别的部分连接优先保留。
         const partial = mcp.connected > 0 && mcp.connected < mcp.enabled;
@@ -326,6 +350,13 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palet
     }
     const clean = sanitizeStatusText(text);
     if (clean) chips.push({ text: clean, priority: 2 });
+  }
+  if (!hasMcpStatus) {
+    const inventory = readMcpInventory(mcpInfo, locale);
+    if (inventory) chips.unshift({
+      text: `${theme.fg(palette.chrome, palette.icons.mcp)} ${theme.fg("muted", inventory)}`,
+      priority: 2,
+    });
   }
   if (chips.length === 0) return undefined;
   return chips.sort((left, right) => left.priority - right.priority)
@@ -490,6 +521,7 @@ function renderFooter(
   settings: FooterSettings,
   locale: ReturnType<typeof resolveLocale>,
   now: number,
+  mcpInfo?: McpInfoProvider,
 ): string[] {
   const palette = PALETTES[settings.theme];
   const view: StatsView = {
@@ -513,12 +545,12 @@ function renderFooter(
     buildIdentityLevels(ctx, footerData, theme, settings, palette),
     readContextField(ctx, theme, palette),
     buildStatsLine(theme, view),
-    statusField(footerData, theme, palette),
+    statusField(footerData, theme, palette, locale, mcpInfo),
   );
 }
 
 /** now 注入仅供测试确定性地驱动实时速率；生产路径用宿主默认时钟。 */
-export function installFooter(ctx: ExtensionContext, settings: FooterSettings, now: () => number = Date.now): void {
+export function installFooter(ctx: ExtensionContext, settings: FooterSettings, now: () => number = Date.now, mcpInfo?: McpInfoProvider): void {
   ctx.ui.setFooter((tui, theme, footerData) => {
     const locale = resolveLocale(settings.locale);
     const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
@@ -550,7 +582,7 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings, n
         // 仅在最终消息落盘后交接，其他扩展写入不清掉在途读数。
         settleStream(ctx.sessionManager, entries);
         const derived = memoizedDerived(entries);
-        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale, now());
+        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale, now(), mcpInfo);
       },
     };
   });

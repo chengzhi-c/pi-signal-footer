@@ -123,13 +123,14 @@ process.on("exit", () => {
   }
 });
 
-export function createApi(agentDir = tempAgentDir(), hostVersion?: string, entries: TestEntry[] = []) {
+export function createApi(agentDir = tempAgentDir(), hostVersion?: string, entries: TestEntry[] = [], apiOverrides: Record<string, unknown> = {}) {
   const handlers = new Map<string, Handler>();
   const commands = new Map<string, Handler>();
   const api = {
     appendEntry: (customType: string) => entries.push({ type: "custom", customType, timestamp: new Date(Date.now()).toISOString() }),
     on: (event: string, handler: Handler) => handlers.set(event, handler),
     registerCommand: (name: string, options: { handler: Handler }) => commands.set(name, options.handler),
+    ...apiOverrides,
   } as unknown as Parameters<ReturnType<typeof createExtension>>[0];
   createExtension({ agentDir, hostVersion })(api);
   return { handlers, commands, agentDir };

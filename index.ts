@@ -111,8 +111,8 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     hideLegend(ctx);
   };
 
-  const installConfiguredFooter = (ctx: ExtensionContext, next: FooterSettings): void => {
-    installFooter(ctx, next);
+  const installConfiguredFooter = (pi: ExtensionAPI, ctx: ExtensionContext, next: FooterSettings): void => {
+    installFooter(ctx, next, Date.now, pi);
     footerInstalled = true;
   };
 
@@ -159,9 +159,9 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
   // 不变量：settings 一旦变化必须经此重装（persist 后成对调用，见各 handler 分支）。
   // installFooter 的渲染闭包捕获传入的 settings 对象，不重装就会让 footer 读到旧值；
   // 重装无泄漏——宿主 setExtensionFooter 会先 dispose 旧组件（interactive-mode.js）。
-  const applyFooterSetting = (ctx: ExtensionContext, next: FooterSettings): void => {
+  const applyFooterSetting = (pi: ExtensionAPI, ctx: ExtensionContext, next: FooterSettings): void => {
     if (next.enabled) {
-      installConfiguredFooter(ctx, next);
+      installConfiguredFooter(pi, ctx, next);
       return;
     }
     resetStreamState(ctx.sessionManager);
@@ -207,7 +207,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
         warnUnsupportedHost(ctx);
         return;
       }
-      applyFooterSetting(ctx, applyLoaded(ctx).settings);
+      applyFooterSetting(pi, ctx, applyLoaded(ctx).settings);
     });
 
     pi.on("session_shutdown", async (_event, ctx) => {
@@ -248,7 +248,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
         if (action === "off" || action === "on") {
           const next = { ...current, enabled: action === "on" };
           if (!persist(ctx, next)) return;
-          applyFooterSetting(ctx, next);
+          applyFooterSetting(pi, ctx, next);
           ctx.ui.notify(action === "off" ? text.off : text.on, "info");
           return;
         }
@@ -281,7 +281,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           const next = { ...current, locale: localeArg };
           const wasLegendVisible = legendVisible;
           if (!persist(ctx, next)) return;
-          applyFooterSetting(ctx, next);
+          applyFooterSetting(pi, ctx, next);
           if (wasLegendVisible) showLegend(ctx, resolveLocale(next.locale));
           ctx.ui.notify(copyFor(resolveLocale(next.locale)).localeChanged(resolveLocale(next.locale)), "info");
           return;
@@ -296,7 +296,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           const nextTheme = raw ?? (current.theme === "vivid" ? "classic" : "vivid");
           const next = { ...current, theme: nextTheme };
           if (!persist(ctx, next)) return;
-          applyFooterSetting(ctx, next);
+          applyFooterSetting(pi, ctx, next);
           ctx.ui.notify(text.themeChanged(next.theme), "info");
           return;
         }
@@ -311,7 +311,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
           }
           const next = { ...current, [chip]: value ?? !current[chip] };
           if (!persist(ctx, next)) return;
-          applyFooterSetting(ctx, next);
+          applyFooterSetting(pi, ctx, next);
           ctx.ui.notify(
             text.itemToggled(itemDisplayName(chip, resolveLocale(next.locale)), next[chip]),
             "info",
