@@ -23,12 +23,12 @@ const COPY = {
       "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
       "◷ agent 工作时长（等你输入的空档不计；单段封顶 15 分钟）· 轮次（用户消息数）。",
       "速率：≈ 为近似，可能高估/低估；新 chunk 到达时变化，结束时定格（tok/s）。",
-      "⇄ MCP 已连/启用；灰色可懒连接；工具/注册非健康。LSP ✗ 失败。",
+      "⇄ MCP 已连/启用；✗N 故障/待处理；工具/注册非健康。LSP ✗ 失败。",
       "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
       "关闭图例：/signal-footer hide；外观切换：/signal-footer theme",
     ],
-    mcpTools: (n: number) => `工具 ${n}`,
-    mcpRegistered: (n: number) => `注册 ${n}`,
+    mcpTools: "工具",
+    mcpRegistered: "注册",
     turns: (n: number) => `${n}轮`,
     off: "已关闭可读状态栏，恢复 Pi 原生状态栏；/signal-footer on 可重新开启。",
     on: "已启用可读状态栏，替代 Pi 原生状态栏。",
@@ -63,12 +63,12 @@ const COPY = {
       "Project: full path (~ = home); session name follows after ·.",
       "◷ agent work time (your wait excluded; 15-min cap) · turns (user msgs).",
       "Rate (tok/s): ≈ approximate; new chunks update it, end freezes it.",
-      "⇄ MCP connected/enabled; tools/reg not health; 0 may be lazy. LSP ✗ failed.",
+      "⇄ MCP connected/enabled; ✗N attention; tools/reg not health. LSP ✗ failed.",
       "When narrow, yield: context bar/numbers → project → branch/thinking → model.",
       "Hide legend: /signal-footer hide; theme: /signal-footer theme",
     ],
-    mcpTools: (n: number) => `tools ${n}`,
-    mcpRegistered: (n: number) => `reg ${n}`,
+    mcpTools: "tools",
+    mcpRegistered: "reg",
     turns: (n: number) => (n === 1 ? "1 turn" : `${n} turns`),
     off: "Readable footer disabled; the native footer is back. Use /signal-footer on to re-enable.",
     on: "Readable footer enabled, replacing the native footer.",
@@ -127,7 +127,7 @@ export function formatTurns(count: number, locale: UiLocale): string {
 export type ProjectPathParts = { parent: string; name: string };
 export type ContextBarParts = { fill: string; track: string };
 export type LspChip = { failed: boolean; names: string };
-export type McpStatus = { connected: number; enabled: number };
+export type McpStatus = { connected: number; enabled: number; failed?: number };
 
 type ModelIconRule = {
   icon: string;
@@ -418,7 +418,7 @@ export function sanitizePlainText(text: unknown): string {
     .trim();
 }
 
-/** 识别 pi-mcp-adapter 状态；仅接受安全整数且连接数不超过启用数。 */
+/** 识别原生发布状态和 pi-mcp-adapter；库存数量不代表连接健康。 */
 export function parseMcpStatus(text: unknown): McpStatus | undefined {
   // Number(undefined) 即 NaN，会被 isSafeInteger 拦下，故参数放宽后调用侧不再收窄。
   const parseCounts = (connectedText: string | undefined, enabledText: string | undefined): McpStatus | undefined => {
@@ -437,6 +437,13 @@ export function parseMcpStatus(text: unknown): McpStatus | undefined {
   };
 
   const raw = stripTerminalSequences(sanitizeStatusText(text));
+  const native = raw.match(/^MCP native (\d+)\/(\d+) failed (\d+)$/);
+  if (native) {
+    const counts = parseCounts(native[1], native[2]);
+    const failed = Number(native[3]);
+    if (!counts || !Number.isSafeInteger(failed) || failed < 0 || failed > counts.enabled - counts.connected) return undefined;
+    return { ...counts, failed };
+  }
   const compact = raw.match(/^MCP (\d+)\/(\d+)$/);
   if (compact) return parseCounts(compact[1], compact[2]);
   const full = raw.match(/^(?:🔌 )?MCP: (\d+) servers? enabled(?: \((\d+) connected\))?(?: \((\d+) disabled\))?$/);

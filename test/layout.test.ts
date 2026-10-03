@@ -597,7 +597,8 @@ test("shows native MCP tools without extension status and refreshes on redraw", 
   const theme = { ...createTheme(), fg: (color: string, text: string) => { colors.set(text, color); return text; } };
   const footer = openFooter(context, theme);
   assert.match(footer.render(160).join("\n"), /⇄ MCP tools 3/);
-  assert.equal(colors.get("tools 3"), "muted", "discovery is not connection health");
+  assert.equal(colors.get("tools"), "muted", "discovery is not connection health");
+  assert.equal(colors.get("3"), "text", "inventory values use the ordinary classic readout color");
   tools.splice(0, 3);
   assert.doesNotMatch(footer.render(160).join("\n"), /MCP/, "hidden tools do not keep the inventory visible");
   tools.push({ name: "mcp__docs__new", exposure: "codemode" });
@@ -609,6 +610,42 @@ test("shows native MCP tools without extension status and refreshes on redraw", 
   const ansiFooter = openFooter(context, createTheme({ ansi: true }));
   for (const width of [1, 40, 76, 112, 160]) {
     for (const line of ansiFooter.render(width)) assert.ok(visibleWidth(line) <= width);
+  }
+});
+
+test("styles native MCP health and its tool count in both footer themes", async () => {
+  const { handlers, commands, agentDir } = createApi(tempAgentDir(), "1.0.0", [], {
+    getAllTools: () => [{ name: "mcp__docs__read" }, { name: "mcp__docs__search" }, { name: "mcp__docs__hidden", exposure: "hidden" }],
+  });
+  pinLocale(agentDir, "en");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { native: "MCP native 2/2 failed 0", lens: "LSP Failed: fixture" });
+  await startSession(handlers, context);
+  for (const style of ["classic", "vivid"] as const) {
+    await commands.get("signal-footer")!("theme " + style, context.ctx);
+    const colors = new Map<string, string>();
+    const theme = { ...createTheme(), fg: (color: string, text: string) => { colors.set(text, color); return text; } };
+    const footer = openFooter(context, theme);
+    for (const [status, ratio, color, failure] of [
+      ["MCP native 2/2 failed 0", "2/2", style === "classic" ? "text" : "success", ""],
+      ["MCP native 1/2 failed 0", "1/2", "warning", ""],
+      ["MCP native 0/2 failed 0", "0/2", "muted", ""],
+      ["MCP native 0/2 failed 2", "0/2", "error", " ✗2"],
+      ["MCP native 1/2 failed 1", "1/2", "error", " ✗1"],
+    ] as const) {
+      context.extensionStatuses.set("native", status);
+      colors.clear();
+      const output = footer.render(160).join("\n");
+      assert.ok(output.includes("MCP " + ratio + failure + " · tools 2"), output);
+      assert.equal(colors.get(ratio), color);
+      assert.equal(colors.get("2"), style === "classic" ? "text" : "syntaxVariable");
+      assert.ok(output.indexOf("LSP ✗ fixture") < output.indexOf("MCP"));
+    }
+    const ansiFooter = openFooter(context, createTheme({ ansi: true }));
+    for (const width of [1, 40, 76, 112, 160]) {
+      for (const line of ansiFooter.render(width)) assert.ok(visibleWidth(line) <= width);
+    }
+    context.extensionStatuses.set("native", "MCP native 0/0 failed 0");
+    assert.doesNotMatch(footer.render(160).join("\n"), /MCP/);
   }
 });
 

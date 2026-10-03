@@ -297,22 +297,24 @@ type McpInfoProvider = {
 };
 
 /** 公开工具/扩展注册信息不含连接健康；读取失败保持未知，不编造零值。 */
-function readMcpInventory(source: McpInfoProvider | undefined, locale: ReturnType<typeof resolveLocale>): string | undefined {
+function readMcpInventory(source: McpInfoProvider | undefined, theme: Theme, palette: Palette, locale: ReturnType<typeof resolveLocale>, includeRegistrations = true): string | undefined {
   const text = copyFor(locale);
+  const paint = (label: string, count: number) => `${theme.fg("muted", label)} ${theme.fg(palette.input.fg, String(count))}`;
   try {
     const tools = source?.getAllTools?.().filter((tool) => tool.exposure !== "hidden"
       && (tool.namespace?.name.startsWith(MCP_TOOL_PREFIX) || tool.name.startsWith(MCP_TOOL_PREFIX))).length ?? 0;
-    if (tools > 0) return text.mcpTools(tools);
+    if (tools > 0) return paint(text.mcpTools, tools);
   } catch {}
+  if (!includeRegistrations) return undefined;
   try {
     const registered = source?.getMcpServers?.().length ?? 0;
-    if (registered > 0) return text.mcpRegistered(registered);
+    if (registered > 0) return paint(text.mcpRegistered, registered);
   } catch {}
   return undefined;
 }
 
 /**
- * 扩展状态槽（右下角）：识别 pi-mcp-adapter / pi-lens 的已知文案后按本插件色板重排，
+ * 扩展状态槽（右下角）：识别原生 MCP / pi-mcp-adapter / pi-lens 后按本插件色板重排，
  * 未知文案原样放行（保留源插件着色），对方改版时只会退化为原文而不会崩。
  */
 function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palette: Palette, locale: ReturnType<typeof resolveLocale>, mcpInfo?: McpInfoProvider): string | undefined {
@@ -325,12 +327,15 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palet
     if (mcp) {
       hasMcpStatus = true;
       if (mcp.enabled > 0) {
-        // 零连接可以是懒连接未激活，不推断故障；已识别的部分连接优先保留。
+        // 零连接不推断故障；原生明确失败或部分连接优先保留。
+        const failed = (mcp.failed ?? 0) > 0;
         const partial = mcp.connected > 0 && mcp.connected < mcp.enabled;
-        const color = mcp.connected === 0 ? "muted" : partial ? "warning" : palette.mcpOk;
+        const color = failed ? "error" : mcp.connected === 0 ? "muted" : partial ? "warning" : palette.mcpOk;
+        const failure = failed ? theme.fg("error", ` ✗${mcp.failed}`) : "";
+        const inventory = mcp.failed !== undefined ? readMcpInventory(mcpInfo, theme, palette, locale, false) : undefined;
         chips.push({
-          text: `${theme.fg(palette.chrome, palette.icons.mcp)} ${theme.fg(color, `${mcp.connected}/${mcp.enabled}`)}`,
-          priority: partial ? 1 : 2,
+          text: `${theme.fg(palette.chrome, palette.icons.mcp)} ${theme.fg(color, `${mcp.connected}/${mcp.enabled}`)}${failure}${inventory ? theme.fg("dim", " · ") + inventory : ""}`,
+          priority: failed || partial ? 1 : 2,
         });
       }
       continue;
@@ -352,9 +357,9 @@ function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palet
     if (clean) chips.push({ text: clean, priority: 2 });
   }
   if (!hasMcpStatus) {
-    const inventory = readMcpInventory(mcpInfo, locale);
+    const inventory = readMcpInventory(mcpInfo, theme, palette, locale);
     if (inventory) chips.unshift({
-      text: `${theme.fg(palette.chrome, palette.icons.mcp)} ${theme.fg("muted", inventory)}`,
+      text: `${theme.fg(palette.chrome, palette.icons.mcp)} ${inventory}`,
       priority: 2,
     });
   }

@@ -115,6 +115,14 @@ test("strips OSC 8 hyperlinks before parsing MCP status", () => {
   );
 });
 
+test("parses published native MCP health without treating inventories as connections", () => {
+  assert.deepEqual(parseMcpStatus("MCP native 4/4 failed 0"), { connected: 4, enabled: 4, failed: 0 });
+  assert.deepEqual(parseMcpStatus("MCP native 0/4 failed 4"), { connected: 0, enabled: 4, failed: 4 });
+  for (const text of ["MCP native 3/4 failed 2", "MCP native 0/4 failed 5", "MCP native 0/4 failed -1", "MCP native 0/4 failed 9007199254740992", "MCP tools 43", "MCP reg 4"]) {
+    assert.equal(parseMcpStatus(text), undefined);
+  }
+});
+
 // Text contract with pi-mcp-adapter status strings; this package does not
 // depend on that extension and cannot pin the wording to a version.
 test("parses pi-mcp-adapter compact and full status variants", () => {
