@@ -90,14 +90,14 @@ test("R2: the live rate reflects the resumed pace instead of the pre-stall segme
   }
 });
 
-test("R3: a single chunk does not divide by a zero-length span", () => {
-  const { context, session, setNow } = streamFixture();
+test("R3: empty updates do not start the first-output clock and one sample has no rate", () => {
+  const { context, session } = streamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
-  setNow(100);
-  handleStream("update", chunk(1), 100, session);
-  setNow(120);
-  const output = openFooter(context).render(160).join("\n");
-  assert.doesNotMatch(output, /tok\/s/, "no rate may be derived from a zero-length span");
+  handleStream("update", { role: "assistant", content: [] }, 100, session);
+  handleStream("update", chunk(1), 1000, session);
+  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
+  handleStream("end", { role: "assistant", usage: { output: 50 } }, 2000, session);
+  assert.match(openFooter(context).render(160).join("\n"), /50 tok\/s/);
 });
 
 test("R4: a slow stream keeps falling back to the running average, never to a bogus value", () => {
@@ -172,6 +172,9 @@ test("R5: the in-flight reading turns exact at end and the landed frame is a no-
   const beforePersist = outputOf(beforePersistText);
   assert.equal(inflightMarkerOf(beforePersistText), "+", "an exact end drops the estimate marker");
 
+  context.entries.push({ type: "custom", timestamp: new Date(6_900).toISOString() });
+  assert.equal(outputOf(openFooter(context).render(200).join("\n")), beforePersist, "an unrelated entry must not settle the pending message");
+
   context.entries.push({
     type: "message",
     timestamp: new Date(7_000).toISOString(),
@@ -209,30 +212,6 @@ test("R6: a new request does not inherit the previous in-flight reading", async 
   const fresh = outputOf(openFooter(context).render(200).join("\n"));
   assert.ok(carried !== undefined && fresh !== undefined);
   assert.ok(fresh < carried, `a new request must not inherit the previous in-flight reading: carried=${carried} fresh=${fresh}`);
-});
-
-test("R16: an exact end renders the in-flight suffix without the estimate marker", async () => {
-  const api = createApi();
-  const context = createContext({ tokens: 1000, contextWindow: 200_000, percent: 0.5 });
-  pinLocale(api.agentDir, "en");
-  await startSession(api.handlers, context);
-  const session = context.ctx.sessionManager;
-  context.entries.push({
-    type: "message",
-    timestamp: new Date(1_000).toISOString(),
-    message: { role: "assistant", usage: { input: 100, output: 2_000, cacheRead: 900, cacheWrite: 0, cost: { total: 0 } }, content: [] },
-  } as never);
-
-  const message = { role: "assistant", usage: { output: 3_200 }, content: [{ type: "text", text: "a".repeat(4_800) }] };
-  handleStream("start", { role: "assistant" }, 5_000, session);
-  handleStream("update", { role: "assistant", usage: {}, content: message.content }, 6_000, session);
-  const streamingText = openFooter(context).render(200).join("\n");
-  assert.equal(inflightMarkerOf(streamingText), "≈", "while streaming the in-flight suffix stays an estimate");
-
-  // end 携带精确 output：后缀即精确值，不得再挂估算标记。
-  handleStream("end", message, 7_000, session, context.entries.length);
-  const ended = openFooter(context).render(200).join("\n");
-  assert.equal(inflightMarkerOf(ended), "+", "an exact end must drop the ≈ marker on the in-flight suffix");
 });
 
 test("R17: an estimate end keeps the ≈ marker and the estimate value until the entry lands", async () => {

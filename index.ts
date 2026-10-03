@@ -22,7 +22,7 @@ import {
 } from "./settings.ts";
 
 import { installFooter } from "./footer.ts";
-import { handleStream, holdWork, resetStreamState } from "./stream.ts";
+import { handleStream, holdWork, resetStreamState, WORK_START_ENTRY_TYPE } from "./stream.ts";
 
 import {
   copyFor,
@@ -71,8 +71,7 @@ function hideLegend(ctx: ExtensionContext): void {
   ctx.ui.setWidget(LEGEND_WIDGET_KEY, undefined);
 }
 
-// 宿主在扩展收到 message_end 之后才把消息落盘，故此刻的条目数是"落盘完成"的判据
-// （footer 渲染时条目数一旦增长即释怀在途读数）。取不到时传 -1，退回旧行为。
+// SDK 先发 message_end 再落盘；从此索引起查找同一最终消息，避免无关条目误清。
 function entryCountOf(ctx: ExtensionContext): number {
   try {
     return ctx.sessionManager.getEntries().length;
@@ -165,6 +164,7 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
       installConfiguredFooter(ctx, next);
       return;
     }
+    resetStreamState(ctx.sessionManager);
     clearLegend(ctx);
     clearConfiguredFooter(ctx);
   };
@@ -174,6 +174,10 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
   const shouldTrackStream = (): boolean => footerSupported && settings.enabled;
 
   return (pi: ExtensionAPI): void => {
+    // custom 条目只作计时边界，不进入 LLM 上下文；关闭时不写，也不回补历史。
+    pi.on("agent_start", () => {
+      if (shouldTrackStream()) pi.appendEntry(WORK_START_ENTRY_TYPE);
+    });
     pi.on("message_start", (event, ctx) => {
       if (shouldTrackStream()) handleStream("start", event.message, Date.now(), ctx.sessionManager);
     });
@@ -185,7 +189,9 @@ export function createExtension(options: { agentDir?: string; hostVersion?: stri
     });
     // 手动 /compact 不置 isIdle=false；配对事件把 hold 卡住这段墙钟，自动压缩已在 agent run 内。
     pi.on("session_before_compact", (_event, ctx) => {
-      if (shouldTrackStream()) holdWork(ctx.sessionManager, true);
+      if (!shouldTrackStream()) return;
+      pi.appendEntry(WORK_START_ENTRY_TYPE);
+      holdWork(ctx.sessionManager, true);
     });
     pi.on("session_compact", (_event, ctx) => {
       holdWork(ctx.sessionManager, false);

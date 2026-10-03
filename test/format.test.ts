@@ -148,6 +148,13 @@ test("parses pi-lens LSP segments and hides inactive state", () => {
   assert.deepEqual(parseLspStatus("LSP Inactive"), []);
   assert.equal(parseLspStatus("LSP Active:    "), undefined);
   assert.equal(parseLspStatus("未知扩展文案"), undefined);
+  // pi-lens 4.3 的 lens-compact-lsp-status：没有服务器名，只有 ✓ / ✗。
+  assert.deepEqual(parseLspStatus("LSP ✓"), [{ failed: false, names: "" }]);
+  assert.deepEqual(parseLspStatus("LSP ✗"), [{ failed: true, names: "" }]);
+  assert.deepEqual(parseLspStatus("\u001B[32mLSP ✓\u001B[0m · \u001B[31mLSP ✗\u001B[0m"), [
+    { failed: false, names: "" },
+    { failed: true, names: "" },
+  ]);
 });
 
 test("automatically identifies model families by model ID", () => {
@@ -307,6 +314,12 @@ test("legend explains every glyph the footer renders", () => {
   for (const glyph of ["↓", "↑", "↻", "✎", "⎔", "⇄", "◷", "⎇", "✦", "›", "·", "MCP", "LSP", "✗", "$"]) {
     assert.ok(guide.includes(glyph), `legend missing "${glyph}"`);
   }
+});
+
+test("legend states that the cache ratio carries over when a request reports no input", () => {
+  // 与 README 读数口径一致：沿用是真实读数语义（绝不伪造 0.00%），图例不说用户就会误读滞后值。
+  assert.ok(legendLines("zh").join(" ").includes("沿用"), "zh legend must state the carry-over semantics");
+  assert.ok(legendLines("en").join(" ").toLowerCase().includes("carr"), "en legend must state the carry-over semantics");
 });
 
 test("legend fits pi's widget line budget in both locales", () => {

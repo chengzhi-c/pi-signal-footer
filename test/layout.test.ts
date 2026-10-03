@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { legendLines } from "../format.ts";
 import { installFooter } from "../footer.ts";
+import { PALETTES } from "../palette.ts";
 import { DEFAULT_SETTINGS, type FooterSettings } from "../settings.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
@@ -149,6 +150,42 @@ test("ignores malformed usage without poisoning later valid totals", async () =>
   assert.match(output, /↓ 50/);
   assert.match(output, /↑ 0/);
   assert.match(output, /\$0\.000/);
+});
+
+test("degrades when a session entry is null or lacks a type", async () => {
+  // 手工编辑/坏行还可能造出 null 或空对象条目；渲染同样不得抛（契约：渲染不得抛）。
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.entries.push(
+    null as never,
+    {} as never,
+    { type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "assistant", usage: { input: 1 } } } as never,
+    undefined as never,
+    { type: "message", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "user" } } as never,
+  );
+  await startSession(handlers, context);
+
+  const output = renderLines(context, 160).join("\n");
+  assert.match(output, /1轮/);
+  assert.match(output, /↓ 1/);
+});
+
+test("degrades when a session entry is missing its message field", async () => {
+  // 手工编辑或坏行会造出 type=message 但没有 message 的条目；渲染不得抛（契约：渲染不得抛，
+  // 会话条目要有降级）。此前 isHumanEntry/entryUsage/abortedStart 直接解构 entry.message。
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.entries.push(
+    { type: "message", timestamp: "2026-01-01T00:00:00.000Z" } as never,
+    { type: "message", timestamp: "2026-01-01T00:00:01.000Z", message: undefined } as never,
+    { type: "message", timestamp: "2026-01-01T00:00:02.000Z", message: { role: "user" } } as never,
+    { type: "message", timestamp: "2026-01-01T00:00:03.000Z", message: { role: "assistant", usage: { input: 1 } } } as never,
+  );
+  await startSession(handlers, context);
+
+  const output = renderLines(context, 160).join("\n");
+  assert.match(output, /1轮/);
+  assert.match(output, /↓ 1/);
 });
 
 test("accumulates assistant, tool, and summary usage exactly once", async () => {
@@ -353,6 +390,39 @@ test("colors context numbers with the same threshold as the percentage", async (
   assert.ok(!output.includes(`${colors.error}${colors.text}125/1.0k`));
 });
 
+test("context threshold color follows the rounded percent on screen", async () => {
+  // 49.5 显示成 50、74.5 显示成 75。颜色若按未取整原值走，读数已跨过图例阈值，颜色还停在上一档。
+  const paint = () => {
+    const colors = new Map<string, string>();
+    return {
+      colors,
+      theme: {
+        fg: (color: string, text: string) => {
+          if (!colors.has(text)) colors.set(text, color);
+          return text;
+        },
+        bold: (text: string) => text,
+        getThinkingBorderColor: () => (text: string) => text,
+      } as unknown as ThemeStub,
+    };
+  };
+  const renderAt = async (percent: number) => {
+    const { handlers } = createApi();
+    const recorded = paint();
+    const context = createContext({ tokens: 1, contextWindow: 1000, percent });
+    await startSession(handlers, context);
+    renderLines(context, 160, recorded.theme);
+    return recorded.colors;
+  };
+
+  const at50 = await renderAt(49.5);
+  assert.equal(at50.get("50%"), "warning");
+  const at75 = await renderAt(74.5);
+  assert.equal(at75.get("75%"), "error");
+  const below = await renderAt(49.4);
+  assert.equal(below.get("49%"), "accent");
+});
+
 test("degrades safely when the host supplies a zero or non-finite render width", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
@@ -362,6 +432,43 @@ test("degrades safely when the host supplies a zero or non-finite render width",
   for (const width of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.doesNotThrow(() => footer.render(width));
     for (const line of footer.render(width)) assert.equal(visibleWidth(line), 0);
+  }
+});
+
+test("keeps the right-edge block flush and the column gap at least two spaces", async () => {
+  // §2.4 目视标准的机器化：右块顶到右边、两列之间至少 2 列空白。此前只断言"不超宽"，
+  // 右缘对齐与列间距是视觉可读性的另一半，靠肉眼守不住回归。
+  const { handlers } = createApi();
+  const context = createContext(
+    { tokens: 125_000, contextWindow: 200_000, percent: 62.5 },
+    { mcp: "MCP 1/1", lens: "LSP Active: typescript" },
+  );
+  context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\agent-demo";
+  context.ctx.sessionManager.getSessionName = () => "fix-context-bar";
+  await startSession(handlers, context);
+  const footer = openFooter(context);
+
+  const gapBefore = (line: string, marker: string): number => {
+    const at = line.indexOf(marker);
+    if (at < 0) return Number.NaN;
+    let gap = 0;
+    for (let i = at - 1; i >= 0 && line[i] === " "; i--) gap++;
+    return gap;
+  };
+
+  // 密集扫过 76..300：gap==1 的边界宽度 = 左块宽 + 右块宽 + 1，随夹具漂移，抽样必漏。
+  for (const width of Array.from({ length: 225 }, (_, i) => 76 + i)) {
+    const lines = footer.render(width);
+    const line1 = lines[0] ?? "";
+    const line2 = lines[1] ?? "";
+    // 右块出现即须右对齐：行尾不留散落空白（右块被整块丢弃时无右块，不适用）。
+    // 右块起点标记：line1 是上下文字段图标，line2 是按 key 排序后的首个状态芯片。
+    for (const [name, line, marker] of [["line1", line1, "⎔"], ["line2", line2, "LSP"]] as const) {
+      if (!line.includes(marker)) continue;
+      assert.ok(!line.endsWith(" "), `${name} must be flush right at width ${width}: ${JSON.stringify(line)}`);
+      const gap = gapBefore(line, marker);
+      assert.ok(gap >= 2, `${name} column gap must be at least 2 spaces at width ${width}, got ${gap}: ${JSON.stringify(line)}`);
+    }
   }
 });
 
@@ -447,18 +554,93 @@ test("never renders a richer context part without the parts that outrank it", as
   assert.doesNotMatch(footer.render(40)[0] ?? "", /63%/);
 });
 
-test("renders MCP and LSP extension statuses as normalized chips", async () => {
+test("keeps the context bar within its 3..20 decoration budget", async () => {
+  // 任务书把上下文条钉成纯装饰：条宽只在 3..20 之间，不许拉满整行冒充进度条。
+  // 预算是实现常量（footer.ts 的 MIN/MAX_CONTEXT_BAR），没有这条断言改动它们不会红。
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
+  context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\agent-demo";
+  await startSession(handlers, context);
+  // 会话名长度变体把条宽的临界档扫出来：单一夹具下临界宽度会落在别的组合里，
+  // MIN/MAX 常量被改也能全绿——只有真的覆盖 3 和 20 的边界，断言才算数。
+  for (const sessionName of ["", "fix-context-bar", "s".repeat(40)]) {
+    context.ctx.sessionManager.getSessionName = () => sessionName;
+    const footer = openFooter(context);
+    for (let width = 1; width <= 200; width++) {
+      for (const line of footer.render(width)) {
+        const bar = line.match(/\[([━─]+)\]/);
+        const inner = bar?.[1]?.length ?? 0;
+        if (inner === 0) continue;
+        assert.ok(inner >= 3 && inner <= 20, `context bar width must stay in 3..20, got ${inner} at width ${width}: ${line}`);
+      }
+    }
+  }
+});
+
+test("keeps known LSP failures and partial MCP connections ahead of normal statuses", async () => {
   const { handlers } = createApi();
   const context = createContext(
     { tokens: 0, contextWindow: 1000, percent: 0 },
-    { mcp: "MCP 1/2", lens: "LSP Active: typescript · LSP Failed: clangd" },
+    { "a-normal": "normal ".repeat(24), mcp: "MCP 1/2", lens: "LSP Active: typescript · LSP Failed: clangd" },
+  );
+  await startSession(handlers, context);
+  const output = renderLines(context, 400).join("\n");
+  assert.match(output, /MCP 1\/2/);
+  assert.match(output, /LSP typescript/);
+  assert.match(output, /LSP ✗ clangd/);
+  assert.ok(output.indexOf("LSP ✗ clangd") < output.indexOf("MCP 1/2"));
+  assert.ok(output.indexOf("MCP 1/2") < output.indexOf("normal"));
+  assert.ok(output.indexOf("normal") < output.indexOf("LSP typescript"), "normal group keeps stable key order");
+  const narrow = renderLines(context, 112).join("\n");
+  assert.match(narrow, /LSP ✗ clangd/);
+  assert.match(narrow, /MCP 1\/2/);
+});
+
+test("paints MCP connectivity by state, never red for idle lazy connects", async () => {
+  // 契约：零连接（懒连接未激活）是灰色而非故障红；部分连是 warning；全连是色板的 ok 色；
+  // LSP 失败是 error。此前只测过 chip 文案，颜色语义没有断言，色板改动不会红。
+  const colors = new Map<string, string>();
+  const theme = {
+    fg: (color: string, text: string) => {
+      if (!colors.has(text)) colors.set(text, color);
+      return text;
+    },
+    bold: (text: string) => text,
+    getThinkingBorderColor: () => (text: string) => text,
+  } as unknown as ThemeStub;
+
+  const mcpColor = async (status: string): Promise<string | undefined> => {
+    const { handlers } = createApi();
+    const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: status });
+    await startSession(handlers, context);
+    colors.clear();
+    renderLines(context, 160, theme);
+    return colors.get(/\d+\/\d+/.exec(status)?.[0] ?? "");
+  };
+
+  assert.equal(await mcpColor("MCP 0/3"), "muted", "idle lazy connects are not failures");
+  assert.equal(await mcpColor("MCP 1/3"), "warning", "partial connectivity warns");
+  assert.equal(await mcpColor("MCP 3/3"), PALETTES.classic.mcpOk, "full connectivity takes the ok hue");
+
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { lens: "LSP Failed: clangd" });
+  await startSession(handlers, context);
+  colors.clear();
+  const output = renderLines(context, 160, theme).join("\n");
+  assert.equal(colors.get("LSP ✗ clangd"), "error", `failed LSP must be error red: ${output}`);
+});
+
+test("renders compact pi-lens status without a dangling separator", async () => {
+  const { handlers } = createApi();
+  const context = createContext(
+    { tokens: 0, contextWindow: 1000, percent: 0 },
+    { lens: "LSP ✓ · LSP ✗" },
   );
   await startSession(handlers, context);
   const output = renderLines(context, 160).join("\n");
 
-  assert.match(output, /MCP 1\/2/);
-  assert.match(output, /LSP typescript/);
-  assert.match(output, /LSP ✗ clangd/);
+  assert.match(output, /LSP ✗ · LSP/);
+  assert.doesNotMatch(output, /LSP {2}|✗ {2}|✗ $/);
 });
 
 test("leaves invalid MCP text visible instead of rendering a chip", async () => {
@@ -516,14 +698,12 @@ test("legend credits tool-call arguments inside the in-flight estimate", () => {
   }
 });
 
-test("legend states the live rate's stall behavior and lower-bound estimate", () => {
-  // 本轮把"停顿回退全程平均"改成"保持最后一次实测"，并把 ≈ 定性为下限估算；
-  // 图例若继续承诺旧口径（或反过来只改实现不改文案）即红，逼两处回到同一状态。
+test("legend identifies approximation without a lower-bound guarantee", () => {
   for (const locale of ["zh", "en"] as const) {
     const guide = legendLines(locale).join(" ").toLowerCase();
-    assert.ok(guide.includes("chunk"), `${locale} legend must say the rate moves only on new chunks`);
-    assert.ok(guide.includes("下限") || guide.includes("lower bound"), `${locale} legend must mark ≈ as a lower bound`);
-    assert.ok(!guide.includes("全程平均") && !guide.includes("whole-response average"), `${locale} legend still promises the retired average fallback`);
+    assert.ok(guide.includes("chunk"), "legend must say the rate moves on new chunks");
+    assert.match(guide, /近似|approx/);
+    assert.doesNotMatch(guide, /下限|lower bound/);
   }
 });
 
@@ -579,7 +759,7 @@ test("vivid palette repaints stat groups while classic stays neutral", () => {
   );
   const vivid = render();
   assert.equal(vivid.colors.get("📥"), "borderAccent", "input icon takes the cyan hue");
-  assert.equal(vivid.colors.get("📤"), "borderAccent", "output icon takes the cyan hue");
+  assert.equal(vivid.colors.get("📤"), "syntaxFunction", "output icon stays with its value");
   assert.equal(vivid.colors.get("🔄"), "success", "cache reads take the green hue");
   assert.equal(vivid.colors.get("📝"), "success", "cache write icon joins the read hue");
   assert.equal(vivid.colors.get(" (89.11%)"), "muted", "cache ratio takes soft muted tone");
@@ -590,7 +770,7 @@ test("vivid palette repaints stat groups while classic stays neutral", () => {
   assert.equal(vivid.colors.get("1/1"), "success", "fully connected MCP takes the success hue");
   assert.equal(vivid.colors.get("🪙 0.010"), "syntaxFunction", "cost takes soft warm pastel");
   assert.equal(vivid.colors.get("10"), "syntaxVariable", "input quantity takes light pastel blue");
-  assert.equal(vivid.colors.get("50"), "syntaxVariable", "output quantity takes light pastel blue");
+  assert.equal(vivid.colors.get("50"), "syntaxFunction", "output quantity is distinguishable from input");
   assert.equal(vivid.colors.get("900"), "syntaxNumber", "cache read quantity takes light pastel green");
   assert.ok(!vivid.bolds.has("10") && !vivid.bolds.has("50") && !vivid.bolds.has("900"), "numbers stay clean and regular");
   assert.ok(!vivid.bolds.has("🪙 0.010"), "cost stays clean and regular");
@@ -605,7 +785,9 @@ test("README documents the carried-over cache ratio and the steered-stream durat
   const zh = readFileSync(new URL("../README.zh-CN.md", import.meta.url), "utf8");
   assert.match(en, /carr(?:y|ies) over/i);
   assert.match(zh, /沿用/);
-  assert.match(en, /steps? back/i);
+  assert.match(en, /rewinds?|steps? back/i);
   assert.match(zh, /回退/);
+  assert.doesNotMatch(en, /marks a lower-bound|never high|never over/i);
+  assert.doesNotMatch(zh, /只会偏低|不会偏高|只许偏低/);
 });
 

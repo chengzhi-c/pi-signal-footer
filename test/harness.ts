@@ -29,8 +29,9 @@ type TestUsage = {
 };
 export type TestEntry = {
   type: string;
+  customType?: string;
   timestamp?: string;
-  message?: { role: string; usage?: TestUsage };
+  message?: { role: string; usage?: TestUsage; stopReason?: string; timestamp?: number };
   usage?: TestUsage;
 };
 export type TestContext = {
@@ -80,7 +81,7 @@ export function createContext(
     isIdle: () => true,
     getContextUsage: () => contextUsage,
     sessionManager: {
-      getEntries: () => entries,
+      getEntries: () => entries.slice(),
       getCwd: (): string => "C:\\work\\demo",
       // 显式标注返回类型，否则字面量 undefined 会被推成 () => undefined，
       // 用例里再赋一个返回字符串的函数就会报类型错。
@@ -122,10 +123,11 @@ process.on("exit", () => {
   }
 });
 
-export function createApi(agentDir = tempAgentDir(), hostVersion?: string) {
+export function createApi(agentDir = tempAgentDir(), hostVersion?: string, entries: TestEntry[] = []) {
   const handlers = new Map<string, Handler>();
   const commands = new Map<string, Handler>();
   const api = {
+    appendEntry: (customType: string) => entries.push({ type: "custom", customType, timestamp: new Date(Date.now()).toISOString() }),
     on: (event: string, handler: Handler) => handlers.set(event, handler),
     registerCommand: (name: string, options: { handler: Handler }) => commands.set(name, options.handler),
   } as unknown as Parameters<ReturnType<typeof createExtension>>[0];

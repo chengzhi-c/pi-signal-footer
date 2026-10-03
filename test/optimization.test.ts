@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createOutputEstimator, estimateOutputTokens, formatDuration } from "../format.ts";
 import { installFooter } from "../footer.ts";
-import { handleStream, holdWork, pushRateSample, RATE_WINDOW_MAX_SAMPLES, type RateSample } from "../stream.ts";
+import { handleStream, holdWork, inFlightTokens, streamRate, pushRateSample, RATE_WINDOW_MAX_SAMPLES, type RateSample } from "../stream.ts";
 import { DEFAULT_SETTINGS } from "../settings.ts";
 
 import { createApi, createContext, openFooter, pinLocale, renderLines, startSession, type Harness } from "./harness.ts";
@@ -227,24 +227,15 @@ test("A3: the live rate falls when streaming decelerates", () => {
   assert.ok(slowRate < fastRate / 2, `windowed rate must fall with deceleration: fast=${fastRate} slow=${slowRate}`);
 });
 
-test("A3: an immature window falls back to the running average, anchored at the last sample", () => {
+test("A3: an immature rate uses the token delta over the same observed span", () => {
   const { context, session, setNow } = streamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
-  setNow(1000);
-  // 只有一个样本：跨度 0，任何速率都是除零的产物，必须不出读数。
   handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(400) }] }, 1000, session);
-  setNow(1000);
   assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
-
-  // 第二样本跨度 200ms 未满最小窗口，退回"本请求已有平均"：分子是本请求累计 token，
-  // 分母同样止于末样本。200 tok / 200ms = 1000 tok/s。
-  setNow(1200);
-  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(800) }] }, 1200, session);
-  assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
-
-  // 渲染不推进读数：墙钟再走 30s，分母不得把样本之后的闲置算进去。
+  handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(440) }] }, 1100, session);
+  assert.equal(streamRate(session), "≈100 tok/s");
   setNow(31_200);
-  assert.match(openFooter(context).render(160).join("\n"), /≈1000 tok\/s/);
+  assert.equal(streamRate(session), "≈100 tok/s", "render time must not change the observed span");
 });
 
 test("A3: the window survives sustained chunk rates above the old sample cap", () => {
@@ -410,21 +401,18 @@ test("T2: a tool-call-only stream surfaces a live rate and an in-flight estimate
   assert.match(output, /≈150 tok\/s/);
 });
 
-// T9：同一条消息同时带 usage.output 与 toolCall 参数时按历史最大合并，不做加法
-test("T9: usage.output and the tool-call estimate merge by max, never by sum", () => {
-  const { context, session, setNow } = streamFixture();
+test("T9: fresh provider output corrects the estimate and anchors later estimated growth", () => {
+  const { session } = streamFixture();
+  const content = (size: number) => [{ type: "toolCall", arguments: { content: "x".repeat(size) } }];
   handleStream("start", { role: "assistant" }, 0, session);
-  // 估算口径：12000 字符参数 ≈ 6007 tok；provider 报的 usage.output 更小（1000）。
-  // 若两处读数被错误相加，在途会变成 ≈+7.0k。
-  handleStream("update", {
-    role: "assistant",
-    usage: { output: 1000 },
-    content: [{ type: "toolCall", arguments: { content: "x".repeat(12000) } }],
-  }, 1000, session);
-  setNow(1000);
-  const output = openFooter(context).render(160).join("\n");
-  assert.match(output, /≈\+6\.0k/);
-  assert.doesNotMatch(output, /≈\+7\.0k/);
+  handleStream("update", { role: "assistant", content: content(12_000) }, 1000, session);
+  assert.equal(inFlightTokens(session), 6007);
+  handleStream("update", { role: "assistant", usage: { output: 1000 }, content: content(12_000) }, 1100, session);
+  assert.equal(inFlightTokens(session), 1000, "fresh usage must replace an overestimate, not max or sum it");
+  assert.equal(streamRate(session), "", "a downward correction has no valid rate span yet");
+  handleStream("update", { role: "assistant", usage: { output: 1000 }, content: content(12_020) }, 1200, session);
+  assert.equal(inFlightTokens(session), 1010, "unchanged usage is a checkpoint, not a live ceiling");
+  assert.equal(streamRate(session), "≈100 tok/s");
 });
 
 // T3/T4/T5：gap 按后继条目角色记账——工作计满（封顶 15min），人类间隔不计
@@ -462,6 +450,62 @@ test("T5: a pathological work gap is capped at 15 minutes", async () => {
   const output = renderLines(context).join("\n");
   assert.match(output, /◷ 15m/);
   assert.doesNotMatch(output, /\d+h\d{2}m/);
+});
+
+async function shownDuration(entries: Array<{ offset: number; role: string; stopReason?: string; started?: number }>): Promise<string> {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const t0 = Date.parse("2026-01-01T00:00:00.000Z");
+  for (const entry of entries) {
+    context.entries.push({
+      type: "message",
+      timestamp: new Date(t0 + entry.offset).toISOString(),
+      message: {
+        role: entry.role,
+        ...(entry.stopReason ? { stopReason: entry.stopReason } : {}),
+        ...(entry.started !== undefined ? { timestamp: t0 + entry.started } : {}),
+      },
+    });
+  }
+  await startSession(handlers, context);
+  return renderLines(context, 160).join("\n").match(/◷\s*([\dhms]+)/)?.[1] ?? "none";
+}
+
+test("T19: a steered abort steps the work gap back by at most one response", async () => {
+  // 条目 timestamp 是落盘时刻。被打断的响应在消息里保留流开始时刻，
+  // 落盘时刻已经是打断之后。回退只扣这一个响应，已完成的前一段留下。
+  assert.equal(await shownDuration([
+    { offset: 0, role: "user" },
+    { offset: 10_000, role: "assistant", stopReason: "stop" },
+    { offset: 70_000, role: "assistant", stopReason: "aborted", started: 10_000 },
+    { offset: 70_000, role: "user" },
+  ]), "10s");
+  // 没有已完成响应时，被打断的那一段整段都不计。
+  assert.equal(await shownDuration([
+    { offset: 0, role: "user" },
+    { offset: 60_000, role: "assistant", stopReason: "aborted", started: 0 },
+    { offset: 60_000, role: "user" },
+  ]), "0m");
+  // 流开始晚于上一条落盘：中间那段是别的工作，只丢响应本身（90s→100s）。
+  assert.equal(await shownDuration([
+    { offset: 0, role: "user" },
+    { offset: 10_000, role: "assistant", stopReason: "stop" },
+    { offset: 100_000, role: "assistant", stopReason: "aborted", started: 90_000 },
+    { offset: 100_000, role: "user" },
+  ]), "1m30s");
+  // 回退不超过一个响应，也不追扣更早的段。前一段先按 15 分钟封顶，后一段整段是被打断的响应。
+  assert.equal(await shownDuration([
+    { offset: 0, role: "user" },
+    { offset: 20 * 60_000, role: "assistant", stopReason: "stop" },
+    { offset: 50 * 60_000, role: "assistant", stopReason: "aborted", started: 30 * 60_000 },
+    { offset: 50 * 60_000, role: "user" },
+  ]), "15m");
+  // provider 的 error 没有可回退的开始时刻，前面的墙钟照计。
+  assert.equal(await shownDuration([
+    { offset: 0, role: "user" },
+    { offset: 10_000, role: "assistant", stopReason: "error" },
+    { offset: 70_000, role: "assistant", stopReason: "toolUse" },
+  ]), "1m10s");
 });
 
 // T6 + T7：流式期间 ◷ 逐帧前进，且条目落盘瞬间不跳变
@@ -568,104 +612,106 @@ test("T12: duration does not jump when the toolResult entry lands", () => {
   assert.equal(after, "40s");
 });
 
-// T13–T16：手动 /compact 不置 isIdle=false，靠 session_before_compact hold 让 ◷ 继续走
-test("T13: duration advances during a compact hold while idle", () => {
+test("T13: a compact hold excludes the idle time before it", () => {
   const fx = liveClockFixture();
-  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
-  holdWork(fx.session, true);
-  fx.setNow(futureBase + 40_000);
-  assert.equal(timeOf(fx.context), "40s");
+  fx.context.entries.push(
+    { type: "message", timestamp: fx.stamp(0), message: { role: "user" } },
+    { type: "message", timestamp: fx.stamp(10_000), message: { role: "assistant" } },
+  );
+  holdWork(fx.session, true, futureBase + 610_000);
+  fx.setNow(futureBase + 670_000);
+  assert.equal(timeOf(fx.context), "1m10s");
 });
 
 test("T14: releasing a compact hold without an entry drops in-flight time and stays frozen", () => {
   const fx = liveClockFixture();
   fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
-  holdWork(fx.session, true);
+  holdWork(fx.session, true, futureBase);
   fx.setNow(futureBase + 40_000);
   assert.equal(timeOf(fx.context), "40s");
   holdWork(fx.session, false);
-  // 失败/取消的压缩没有落盘条目，这段墙钟不得留在 ◷ 里
   assert.equal(timeOf(fx.context), "0m");
   fx.setNow(futureBase + 90_000);
   assert.equal(timeOf(fx.context), "0m");
 });
 
-test("T15: duration does not jump when the compaction entry lands", () => {
+test("T15: agent_start records a work boundary that survives landing and reload", async (t) => {
   const fx = liveClockFixture();
-  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
-  holdWork(fx.session, true);
-  fx.setNow(futureBase + 40_000);
-  const before = timeOf(fx.context);
-  fx.context.entries.push({
-    type: "compaction",
-    timestamp: fx.stamp(40_000),
-    usage: { cost: { total: 0.04 } },
-  });
-  holdWork(fx.session, false);
-  fx.setNow(futureBase + 40_000);
-  const after = timeOf(fx.context);
-  assert.equal(before, "40s");
-  assert.equal(after, "40s");
+  const { handlers } = createApi(undefined, undefined, fx.context.entries);
+  let clock = futureBase + 610_000;
+  t.mock.method(Date, "now", () => clock);
+  fx.context.entries.push(
+    { type: "message", timestamp: fx.stamp(0), message: { role: "user" } },
+    { type: "message", timestamp: fx.stamp(10_000), message: { role: "assistant" } },
+  );
+  await handlers.get("agent_start")?.({ type: "agent_start" }, fx.context.ctx);
+  fx.context.ctx.isIdle = () => false;
+  clock = futureBase + 670_000;
+  fx.setNow(clock);
+  assert.equal(timeOf(fx.context), "1m10s");
+  fx.context.entries.push({ type: "message", timestamp: fx.stamp(670_000), message: { role: "assistant" } });
+  fx.context.ctx.isIdle = () => true;
+  assert.equal(timeOf(fx.context), "1m10s");
+  await startSession(handlers, fx.context);
+  assert.equal(timeOf(fx.context), "1m10s");
 });
 
-test("T16: session_before_compact holds via the extension handler, compact_failed releases", async () => {
-  const { handlers } = createApi();
+test("T16: compact failure and cancellation both release the hold without persisting work", async (t) => {
   const fx = liveClockFixture();
+  const { handlers } = createApi(undefined, undefined, fx.context.entries);
+  let clock = futureBase;
+  t.mock.method(Date, "now", () => clock);
   fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
-  await handlers.get("session_before_compact")?.(
-    { type: "session_before_compact" },
-    fx.context.ctx,
-  );
-  fx.setNow(futureBase + 40_000);
-  assert.equal(timeOf(fx.context), "40s");
-  await handlers.get("session_compact_failed")?.(
-    { type: "session_compact_failed" },
-    fx.context.ctx,
-  );
-  fx.setNow(futureBase + 90_000);
-  assert.equal(timeOf(fx.context), "0m");
+  for (const reason of ["error", "cancelled"]) {
+    await handlers.get("session_before_compact")?.({ type: "session_before_compact" }, fx.context.ctx);
+    clock += 40_000;
+    fx.setNow(clock);
+    assert.equal(timeOf(fx.context), "40s");
+    await handlers.get("session_compact_failed")?.({ type: "session_compact_failed", reason }, fx.context.ctx);
+    clock += 50_000;
+    fx.setNow(clock);
+    assert.equal(timeOf(fx.context), "0m");
+  }
 });
 
-test("T18: compact_failed still releases after the footer is turned off", async () => {
-  const { handlers, commands } = createApi();
+test("T18: off clears a compact hold and writes no work boundaries while disabled", async (t) => {
   const fx = liveClockFixture();
+  const { handlers, commands } = createApi(undefined, undefined, fx.context.entries);
+  t.mock.method(Date, "now", () => futureBase);
   fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
-  await handlers.get("session_before_compact")?.(
-    { type: "session_before_compact" },
-    fx.context.ctx,
-  );
+  await handlers.get("session_before_compact")?.({ type: "session_before_compact" }, fx.context.ctx);
   fx.setNow(futureBase + 40_000);
   assert.equal(timeOf(fx.context), "40s");
   await commands.get("signal-footer")!("off", fx.context.ctx);
-  await handlers.get("session_compact_failed")?.(
-    { type: "session_compact_failed" },
-    fx.context.ctx,
-  );
+  const count = fx.context.entries.length;
+  await handlers.get("session_compact_failed")?.({ type: "session_compact_failed" }, fx.context.ctx);
+  await handlers.get("agent_start")?.({ type: "agent_start" }, fx.context.ctx);
+  await handlers.get("session_before_compact")?.({ type: "session_before_compact" }, fx.context.ctx);
+  assert.equal(fx.context.entries.length, count);
   fx.setNow(futureBase + 90_000);
-  // liveClock footer 仍在（createApi 没在此 ctx 上装过 footer）；hold 必须被清掉
   assert.equal(timeOf(fx.context), "0m");
 });
 
-test("T17: session_compact releases the hold after the compaction entry lands", async () => {
-  const { handlers } = createApi();
+test("T17: manual compaction excludes prior idle time live, on landing, and after reload", async (t) => {
   const fx = liveClockFixture();
-  fx.context.entries.push({ type: "message", timestamp: fx.stamp(0), message: { role: "user" } });
-  await handlers.get("session_before_compact")?.(
-    { type: "session_before_compact" },
-    fx.context.ctx,
+  const { handlers } = createApi(undefined, undefined, fx.context.entries);
+  let clock = futureBase + 610_000;
+  t.mock.method(Date, "now", () => clock);
+  fx.context.entries.push(
+    { type: "message", timestamp: fx.stamp(0), message: { role: "user" } },
+    { type: "message", timestamp: fx.stamp(10_000), message: { role: "assistant" } },
   );
-  fx.setNow(futureBase + 40_000);
-  fx.context.entries.push({
-    type: "compaction",
-    timestamp: fx.stamp(40_000),
-    usage: { cost: { total: 0.04 } },
-  });
-  await handlers.get("session_compact")?.(
-    { type: "session_compact" },
-    fx.context.ctx,
-  );
-  fx.setNow(futureBase + 90_000);
-  assert.equal(timeOf(fx.context), "40s");
+  await handlers.get("session_before_compact")?.({ type: "session_before_compact" }, fx.context.ctx);
+  clock = futureBase + 670_000;
+  fx.setNow(clock);
+  assert.equal(timeOf(fx.context), "1m10s");
+  fx.context.entries.push({ type: "compaction", timestamp: fx.stamp(670_000), usage: { cost: { total: 0.04 } } });
+  await handlers.get("session_compact")?.({ type: "session_compact" }, fx.context.ctx);
+  clock += 90_000;
+  fx.setNow(clock);
+  assert.equal(timeOf(fx.context), "1m10s");
+  await startSession(handlers, fx.context);
+  assert.equal(timeOf(fx.context), "1m10s");
 });
 
 // ===== R（R10-P76）：估算器增量累加——输出值与全量扫描逐一相等 =====

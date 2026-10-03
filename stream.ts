@@ -1,22 +1,11 @@
 import { createOutputEstimator, finiteNonNegative, formatSpeed, type OutputEstimator } from "./format.ts";
 
-/** 单个 agent 工作请求的计时上限：只防病态跳变（resume / tree 导航后由命令直接触发
- *  的工作条目会把前置长闲置记成一段 gap）。两轮真实会话实测（36+38 个）单段工作
- *  最长 480s（8.0min），15min 留 87% 余量；上调的代价只在病态路径（闲置被多计 5min），
- *  不上调的代价是超长生成在流式中途定格且落盘少计。footer.ts 的落盘 gap 记账与
- *  这里的在途工作时长共用这把尺——同一段墙钟，两处必须同一上限才不会在落盘瞬间跳格。 */
+/** 旧历史无起点标记时仍按条目 gap 推导；live 与落盘共用上限，避免交接跳变。 */
 export const WORK_GAP_CAP_MS = 15 * 60_000;
+export const WORK_START_ENTRY_TYPE = "pi-signal-footer-work-start";
 
-// 流式速率计时：message_start 记请求时刻，首个 message_update 记首 token 时刻
-// （剔除 TTFT/排队），message_end 用精确 usage.output 收口。
-// liveTokens 是流式期间的输出下限信号（时点 usage 与字符估算取历史最大）：
-// provider 大多只在末尾 chunk 写 usage，实时读数只能估算，故渲染带 ≈ 前缀。
-//
-// 实时读数锚定「最后一个样本时刻」而非当前墙钟：分母因此绝不含样本之后的闲置，
-// 停顿期读数恒定（不需要额外的冻结状态），恢复时的读数也只会被新 chunk 影响。
-// 回看在同一个连续生成段内进行（相邻样本间隔 > RATE_WINDOW_MS 即视为停顿边界），
-// 段跨度满一个窗口即取窗口速率；段跨度未满 RATE_WINDOW_MIN_MS 时沿用本请求
-// 最后一次有效实测——恢复期的前几百毫秒不会被上一段的速率混入，也不会被稀释。
+// 速率只在 chunk 到达时采样；成熟窗口不跨停顿，渲染不把后续空闲算进分母。
+// 流式读数来自可见内容近似与 provider 用量校准；最终 output 由 message_end 收口。
 
 const RATE_WINDOW_MS = 1500;
 const RATE_WINDOW_MIN_MS = 500;
@@ -31,18 +20,19 @@ export type StreamState = {
     tRequest: number;
     tFirst: number | null;
     liveTokens: number;
+    firstSample: RateSample | null;
+    reported: { tokens: number; estimate: number } | null;
     samples: RateSample[];
     /** 本请求最后一次有效实测（已格式化）；段跨度未成熟时沿用它。 */
     lastMeasured: string;
     /** 本请求的增量估算器：update 喂累积全文，只扫新增后缀；end 随 timing 一起出局。 */
     estimator: OutputEstimator;
   } | null;
-  /** end 后的在途读数：宿主在扩展收到 message_end 之后才落盘，条目数增长即释怀。
-   *  provider 报了精确 output 时 tokens 即该精确值（exact=true），否则为估算（exact=false）。 */
-  pending: { tokens: number; entries: number; exact: boolean } | null;
+  /** SDK 先发 end 再落盘；用最终消息引用确认交接，不把其他扩展写入视为落盘。 */
+  pending: { tokens: number; entries: number; exact: boolean; message: StreamMessage } | null;
   lastRate: string;
   /** 手动 /compact 期间 isIdle() 仍为 true，靠这对事件把 ◷ 接着往前走。 */
-  workHold: boolean;
+  workHold: number | null;
 };
 
 const streamStates = new WeakMap<object, StreamState>();
@@ -50,7 +40,7 @@ const streamStates = new WeakMap<object, StreamState>();
 function streamStateFor(session: object): StreamState {
   let state = streamStates.get(session);
   if (!state) {
-    state = { timing: null, pending: null, lastRate: "", workHold: false };
+    state = { timing: null, pending: null, lastRate: "", workHold: null };
     streamStates.set(session, state);
   }
   return state;
@@ -60,12 +50,17 @@ export function resetStreamState(session: object): void {
   streamStates.delete(session);
 }
 
-/** 条目数已增长即认为落盘完成（宿主在 message_end 回调之后立刻 appendMessage）。
- *  取不到条目数时传 -1，判据不成立，退回旧行为而不是误清。 */
-export function settleStream(session: object, entryCount: number): void {
+/** getEntries 是浅拷贝，appendMessage 保留消息引用；仅检查 end 后的新条目。 */
+export function settleStream(session: object, entries: readonly { type: string; message?: unknown }[]): void {
   const state = streamStates.get(session);
   if (!state?.pending) return;
-  if (entryCount > state.pending.entries) state.pending = null;
+  for (let index = state.pending.entries; index < entries.length; index++) {
+    const entry = entries[index];
+    if (entry?.type === "message" && entry.message === state.pending.message) {
+      state.pending = null;
+      return;
+    }
+  }
 }
 
 /** 连续生成段内的速率：从末样本往回走到跨度满一个窗口，遇到相邻间隔超过窗口的
@@ -94,13 +89,12 @@ export function streamRate(session: object): string {
   if (timing.tFirst === null) return "";
   const last = timing.samples[timing.samples.length - 1];
   if (!last) return "";
-  // 实测在 chunk 到达时算好（见 handleStream），渲染只读——读数不随渲染频率变化。
-  // 本请求尚无有效实测（刚开流式）时用已有平均兜底：分母同样止于末样本，不含闲置。
-  const text = timing.lastMeasured || formatSpeed(last.tokens, last.t - timing.tFirst);
+  const first = timing.firstSample;
+  const text = timing.lastMeasured || (first ? formatSpeed(last.tokens - first.tokens, last.t - first.t) : "");
   return text ? `≈${text}` : "";
 }
 
-/** 在途请求的输出估算下限；在途结束后由 pending 接管到条目落盘，未流式时为 0。 */
+/** 在途请求的近似输出；在途结束后由 pending 接管到条目落盘，未流式时为 0。 */
 export function inFlightTokens(session: object): number {
   const state = streamStates.get(session);
   if (!state) return 0;
@@ -112,31 +106,29 @@ export function inFlightExact(session: object): boolean {
   return streamStates.get(session)?.pending?.exact ?? false;
 }
 
-/** 在途工作时长：LLM 流式、agent 仍忙（工具执行）或手动压缩 hold 时，从末条时间戳走到 now。
- *  与即将落盘的工作 gap 是同一段墙钟，数值先连续增长、落盘后由条目原地接管。 */
+/** 压缩可在长空闲后开始；从最新条目与 hold 起点中较晚者起算，落盘后由条目接管。 */
 export function inFlightWorkMs(session: object, lastTs: number, now: number, busy = false): number {
   const state = streamStates.get(session);
-  const streaming = state?.timing != null;
-  if (!streaming && !busy && !state?.workHold) return 0;
+  if (!state?.timing && !busy && state?.workHold == null) return 0;
   if (!Number.isFinite(lastTs)) return 0;
-  return Math.min(Math.max(0, now - lastTs), WORK_GAP_CAP_MS);
+  const start = Math.max(lastTs, state?.workHold ?? lastTs);
+  return Math.min(Math.max(0, now - start), WORK_GAP_CAP_MS);
 }
 
-/** 手动 /compact：session_before_compact 置 true，compact / compact_failed 置 false。
- *  释放不创建新 state——footer 已关时 compact_failed 仍必须能清掉残留 hold。 */
-export function holdWork(session: object, held: boolean): void {
+/** 释放不创建 state，关闭后的完成/失败事件不会重建已清理的状态。 */
+export function holdWork(session: object, held: boolean, now = Date.now()): void {
   if (held) {
-    streamStateFor(session).workHold = true;
+    streamStateFor(session).workHold = now;
     return;
   }
   const state = streamStates.get(session);
-  if (state) state.workHold = false;
+  if (state) state.workHold = null;
 }
 
 export type StreamKind = "start" | "update" | "end";
 export type StreamMessage = {
   role: string;
-  usage?: { output?: number };
+  usage?: { output?: number; reasoning?: number };
   // AgentMessage 联合里 user/toolResult 的 content 可为 string；估算只认数组形态。
   content?: string | readonly { type: string; text?: string; thinking?: string; arguments?: unknown }[];
 };
@@ -164,6 +156,8 @@ export function handleStream(
       tRequest: now,
       tFirst: null,
       liveTokens: 0,
+      firstSample: null,
+      reported: null,
       samples: [],
       lastMeasured: "",
       estimator: createOutputEstimator(),
@@ -177,14 +171,27 @@ export function handleStream(
   if (kind === "update") {
     const timing = state.timing;
     if (!timing) return;
+    const estimate = timing.estimator.estimate(typeof message.content === "string" ? undefined : message.content);
+    const reported = finiteNonNegative(message.usage?.output);
+    const fresh = reported > 0 && reported !== timing.reported?.tokens;
+    if (fresh) {
+      // 相同 usage 可长期停留在初始值；以变化的用量校准，再只估新增内容。
+      if (reported < timing.liveTokens) {
+        timing.samples.length = 0;
+        timing.firstSample = null;
+        timing.lastMeasured = "";
+      }
+      timing.reported = { tokens: reported, estimate };
+      timing.liveTokens = reported;
+    } else {
+      const observed = timing.reported
+        ? timing.reported.tokens + Math.max(0, estimate - timing.reported.estimate)
+        : estimate;
+      timing.liveTokens = Math.max(timing.liveTokens, observed);
+    }
+    if (timing.liveTokens === 0) return;
     if (timing.tFirst === null) timing.tFirst = now;
-    // 历史最大值：读数单调，provider 重发更小的 partial 或 Anthropic 的初始小
-    // output 值都不会压低实时速率。
-    timing.liveTokens = Math.max(
-      timing.liveTokens,
-      finiteNonNegative(message.usage?.output),
-      timing.estimator.estimate(typeof message.content === "string" ? undefined : message.content),
-    );
+    timing.firstSample ??= { t: now, tokens: timing.liveTokens };
     // 窗口采样：驱逐过期、按上限收口并记录 (时刻, 累计 token)。
     pushRateSample(timing.samples, now, timing.liveTokens);
     // 实测在此刻算好：段跨度未成熟时保留上一次实测，恢复期读数不被上一段混入。
@@ -199,12 +206,9 @@ export function handleStream(
   // 与 update 路径同一把 finiteNonNegative 尺：非有限/非数值的 output 不是可用的
   // 精确值，必须落回估算分支，而不是进入 formatSpeed 后被置空成整段空窗。
   const billed = finiteNonNegative(message.usage?.output);
-  // 宿主在扩展收到 message_end 之后才落盘：读数先转入 pending，条目落盘后由
-  // settleStream 释怀。provider 报了精确 output 时 pending 直接携带它——落盘条目
-  // 累计的增量恰为该值，交接窗口内读数即精确（exact），落盘帧成为无操作；
-  // 无精确值（中止、部分 provider、空响应）沿用估算并保留 ≈ 语义。
+  // usage 的全零也可能是 SDK 初始化占位；只将有效正值标为精确输出。
   state.pending = entryCount >= 0
-    ? { tokens: billed > 0 ? billed : liveTokens, entries: entryCount, exact: billed > 0 }
+    ? { tokens: billed > 0 ? billed : liveTokens, entries: entryCount, exact: billed > 0, message }
     : null;
   state.timing = null;
   if (billed > 0 && ms > 0) state.lastRate = formatSpeed(billed, ms);

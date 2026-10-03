@@ -108,7 +108,7 @@ const CLASSIC_PALETTE: Palette = {
 const VIVID_PALETTE: Palette = {
   icons: VIVID_ICONS,
   input: { icon: "borderAccent", fg: "syntaxVariable", bold: false },
-  output: { icon: "borderAccent", fg: "syntaxVariable", bold: false },
+  output: { icon: "syntaxFunction", fg: "syntaxFunction", bold: false },
   inflight: "muted",
   read: { icon: "success", fg: "syntaxNumber", bold: false },
   ratio: "muted",

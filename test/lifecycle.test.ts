@@ -183,9 +183,9 @@ test("keeps streaming rates isolated by session context", async () => {
     now = 100;
     await handlers.get("message_start")?.({ type: "message_start", message: { role: "assistant" } }, second.ctx);
     now = 1000;
-    await handlers.get("message_update")?.({ type: "message_update", message: { role: "assistant" } }, first.ctx);
+    await handlers.get("message_update")?.({ type: "message_update", message: { role: "assistant", usage: { output: 1 } } }, first.ctx);
     now = 500;
-    await handlers.get("message_update")?.({ type: "message_update", message: { role: "assistant" } }, second.ctx);
+    await handlers.get("message_update")?.({ type: "message_update", message: { role: "assistant", usage: { output: 1 } } }, second.ctx);
     now = 3000;
     await handlers.get("message_end")?.(
       { type: "message_end", message: { role: "assistant", usage: { output: 100 } } },
@@ -213,7 +213,7 @@ test("clears the previous response speed when a session shuts down", async () =>
   const originalNow = Date.now;
   await startSession(handlers, first);
   handleStream("start", { role: "assistant" }, 0, first.ctx.sessionManager);
-  handleStream("update", { role: "assistant" }, 1000, first.ctx.sessionManager);
+  handleStream("update", { role: "assistant", usage: { output: 1 } }, 1000, first.ctx.sessionManager);
   handleStream("end", { role: "assistant", usage: { output: 100 } }, 3000, first.ctx.sessionManager);
   assert.equal(Date.now, originalNow);
 
@@ -226,6 +226,25 @@ test("clears the previous response speed when a session shuts down", async () =>
   assert.doesNotMatch(renderLines(second).join("\n"), /tok\/s/);
 });
 
+test("off clears an active stream and skips events until on", async () => {
+  const { handlers, commands } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  await startSession(handlers, context);
+  const message = { role: "assistant", content: [{ type: "text", text: "a".repeat(400) }], usage: { output: 100 } };
+  await handlers.get("message_start")?.({ type: "message_start", message }, context.ctx);
+  await handlers.get("message_update")?.({ type: "message_update", message }, context.ctx);
+  assert.match(renderLines(context, 160).join("\n"), /≈\+100/);
+  await commands.get("footer")!("off", context.ctx);
+  await handlers.get("message_end")?.({ type: "message_end", message }, context.ctx);
+  context.entries.push({ type: "message", timestamp: new Date().toISOString(), message });
+  await handlers.get("message_start")?.({ type: "message_start", message }, context.ctx);
+  await handlers.get("message_update")?.({ type: "message_update", message }, context.ctx);
+  await commands.get("signal-footer")!("on", context.ctx);
+  const output = renderLines(context, 160).join("\n");
+  assert.match(output, /↑ 100/);
+  assert.doesNotMatch(output, /≈\+|tok\/s/, "neither active nor disabled-period readings may survive off/on");
+});
+
 test("keeps the first-token timestamp when the first update lands at time zero", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
@@ -234,7 +253,7 @@ test("keeps the first-token timestamp when the first update lands at time zero",
   // 首 token 落在 0ms：0 不能被当作「未记录」哨兵，否则会被后续 update 覆盖，
   // 把全程 2000ms 算成 1000ms（100 tok/s）。
   handleStream("start", { role: "assistant" }, 0, context.ctx.sessionManager);
-  handleStream("update", { role: "assistant" }, 0, context.ctx.sessionManager);
+  handleStream("update", { role: "assistant", usage: { output: 1 } }, 0, context.ctx.sessionManager);
   handleStream("update", { role: "assistant" }, 1000, context.ctx.sessionManager);
   handleStream("end", { role: "assistant", usage: { output: 100 } }, 2000, context.ctx.sessionManager);
 

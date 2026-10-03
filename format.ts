@@ -17,12 +17,12 @@ export function resolveLocale(setting: "auto" | UiLocale, detected = Intl.DateTi
 const COPY = {
   zh: {
     legend: [
-      "↓ 输入 ↑ 输出 token（流式中 ↑ 带 ≈+ 在途估算，含工具调用参数）；↻ 缓存读总量（括号 = 上轮请求 读÷总输入）；✎ 缓存写总量；$ 累计成本。",
+      "↓ 输入 ↑ 输出 token（流式中 ↑ 带 ≈+ 在途估算，含工具调用参数）；↻ 缓存读（括号 = 上轮请求 读÷总输入，未报沿用）；✎ 缓存写；$ 累计成本。",
       "⎔ 上下文：百分比 + 占用条 + 已用/窗口 token；≥50% 警告，≥75% 错误，? 未知。",
       "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
       "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
       "◷ agent 工作时长（等你输入的空档不计；单段封顶 15 分钟）· 轮次（用户消息数）。",
-      "速率：≈ 为下限估算，只在新 chunk 到达时变化；结束后定格精确值（tok/s）。",
+      "速率：≈ 为近似，可能高估/低估；新 chunk 到达时变化，结束时定格（tok/s）。",
       "⇄ MCP 已连/启用：全灰=懒连接未激活（非故障）；LSP ✗ 为失败的服务器。",
       "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
       "关闭图例：/signal-footer hide；外观切换：/signal-footer theme",
@@ -55,12 +55,12 @@ const COPY = {
   },
   en: {
     legend: [
-      "↓ in ↑ out tokens (≈+ in-flight estimate incl. tool-call args); ↻ cache read total (parens = last request read÷input); ✎ cache write total; $ cost.",
+      "↓ in ↑ out tokens (≈+ in-flight incl. tool-call args); ↻ cache read (parens = last read÷input, carried when unreported); ✎ write; $ cost.",
       "⎔ context: percent + bar + used/window tokens; ≥50% warn, ≥75% err, ? unknown.",
       "Model: provider › icon model (matched by family); ✦ thinking; ⎇ git branch.",
       "Project: full path (~ = home); session name follows after ·.",
       "◷ agent work time (your wait excluded; 15-min cap) · turns (user msgs).",
-      "Rate: ≈ lower bound, moves only on new chunks; exact once done (tok/s).",
+      "Rate (tok/s): ≈ approximate; new chunks update it, end freezes it.",
       "⇄ MCP connected/enabled: muted = idle lazy connect; LSP ✗ = failed servers.",
       "When narrow, yield: context bar/numbers → project → branch/thinking → model.",
       "Hide legend: /signal-footer hide; theme: /signal-footer theme",
@@ -244,29 +244,16 @@ function safeStringify(value: unknown): string {
   }
 }
 
-/**
- * 流式期间的输出 token 估算：CJK/韩文音节/注音 ≈1 tok/字，其余按块类型给字符密度。
- * 只用于实时速率的 ≈ 前缀读数；精确值一律由 message_end 的 usage 收口。
- * toolCall 参数计入：实测占 agentic 会话可估输出的一半以上，漏掉它会让最常见的
- * 工具型回合整段流式没有读数。只读公开类型字段 arguments（宿主在流式期间用
- * parseStreamingJson 渐进填充，实测全程非空且单调增长），provider 私有的
- * partialJson/partialArgs 一律不碰——那才是会随版本漂移的形状。
- *
- * 非 CJK 密度实测标定（478 条真实 assistant 消息的 estimate/usage.output）：
- * 工具参数是 JSON（引号、括号、键名、短值密集），密度约 1.95 字符/token，
- * 按正文的 4 字符/token 计会让 ≈ 读数系统性腰斩；正文与思考按 4 字符/token
- * 与实测（3.9 字符/token）相符。取 2 为保守留量，读数仍在下限侧。
- */
+/** 可见正文/思考按 4 字符、工具参数 JSON 按 2 字符、CJK 按 1 字符/token 近似。
+ * 固定密度既可能高估也可能低估；隐藏推理不可观测。只读公开 content 字段，最终由 usage 收口。 */
 export type EstimateContent = readonly { type: string; text?: string; thinking?: string; arguments?: unknown }[];
 
 const NON_CJK_CHARS_PER_TOKEN: Readonly<Record<string, number>> = { text: 4, thinking: 4, toolCall: 2 };
 
 export type OutputEstimator = { estimate(content: EstimateContent | undefined): number };
 
-/** 单个块的增量记账：kind 变（块被替换）或 len 收缩（非单调追加）即退回全量重扫，
- *  输出值自动与一次性扫描一致；同长度直接复用（心跳期重渲染的快路径）。已知取舍：
- *  同长度的中段变异检测不到——parseStreamingJson 单调追加下不存在该形态，且读数
- *  是 ≈、liveTokens 取历史最大、message_end 由精确 usage 收口，三层兜底。 */
+/** 累积内容追加时只扫后缀；块类型改变或收缩时重扫。相同长度的中段改写不检测，
+ *  因为这里是可被 provider 用量纠正的近似值，不是 tokenizer。 */
 type BlockMemo = { kind: string; len: number; cjk: number };
 
 /** 码元级区间比较而非逐字符正则调用：热路径（每个 chunk 事件）下开销更低；
@@ -297,8 +284,7 @@ function blockText(block: { type: string; text?: string; thinking?: string; argu
     : "";
 }
 
-/** 单请求估算器：每个 message_update 喂入累积全文，只扫各块新增后缀（bench 实测
- *  50KB 参数 200 chunk 全量重扫 20.6ms → 后缀 0.2ms）。估算状态随请求生灭。 */
+/** 每个请求独立记账，只扫描新增字符；工具参数仍需序列化公开 arguments。 */
 export function createOutputEstimator(): OutputEstimator {
   const memos: BlockMemo[] = [];
   return {
@@ -311,23 +297,21 @@ export function createOutputEstimator(): OutputEstimator {
       let otherCost = 0;
       for (let index = 0; index < content.length; index++) {
         const block = content[index];
-        if (block === undefined) continue; // 稀疏数组按空块计，不打穿宿主渲染循环
+        if (block === undefined) continue;
         const text = blockText(block);
         const perToken = NON_CJK_CHARS_PER_TOKEN[block.type] ?? 4;
-        const memo: BlockMemo | undefined = memos[index];
-        if (memo !== undefined && memo.kind === block.type && text.length >= memo.len) {
-          if (text.length > memo.len) {
-            memo.cjk += countCjk(text, memo.len);
-            memo.len = text.length;
-          }
-          cjk += memo.cjk;
-          otherCost += (text.length - memo.cjk) / perToken;
+        const memo = memos[index];
+        let blockCjk: number;
+        if (memo && memo.kind === block.type && text.length >= memo.len) {
+          memo.cjk += countCjk(text, memo.len);
+          memo.len = text.length;
+          blockCjk = memo.cjk;
         } else {
-          const full = countCjk(text, 0);
-          memos[index] = { kind: block.type, len: text.length, cjk: full };
-          cjk += full;
-          otherCost += (text.length - full) / perToken;
+          blockCjk = countCjk(text, 0);
+          memos[index] = { kind: block.type, len: text.length, cjk: blockCjk };
         }
+        cjk += blockCjk;
+        otherCost += (text.length - blockCjk) / perToken;
       }
       memos.length = content.length;
       return cjk + Math.ceil(otherCost);
@@ -465,7 +449,13 @@ export function parseLspStatus(text: unknown): LspChip[] | undefined {
   if (raw === "LSP Inactive") return [];
   const chips: LspChip[] = [];
   for (const segment of raw.split(" · ")) {
-    const match = segment.trim().match(/^LSP (Active|Failed): (.+)$/);
+    const trimmed = segment.trim();
+    // pi-lens 4.3 的紧凑档没有服务器名：LSP ✓ / LSP ✗。
+    if (trimmed === "LSP ✓" || trimmed === "LSP ✗") {
+      chips.push({ failed: trimmed === "LSP ✗", names: "" });
+      continue;
+    }
+    const match = trimmed.match(/^LSP (Active|Failed): (.+)$/);
     if (!match) return undefined;
     const state = match[1];
     const names = match[2];

@@ -39,6 +39,7 @@ import {
   settleStream,
   streamRate,
   WORK_GAP_CAP_MS,
+  WORK_START_ENTRY_TYPE,
 } from "./stream.ts";
 
 const WIDE_LAYOUT_WIDTH = 112;
@@ -83,7 +84,7 @@ function addUsage(totals: UsageTotals, usage: UsageLike | undefined): void {
 
 /** 只有 user 条目代表"人在场才发生"；custom/compaction 等扩展写入的条目按 agent 活动计。 */
 function isHumanEntry(entry: SessionEntry): boolean {
-  return entry.type === "message" && entry.message.role === "user";
+  return entry.type === "message" && entry.message?.role === "user";
 }
 
 /** 这些条目由人（或启动流程）写入，其前面的空档不是 agent 工作：切模型/改思考等级
@@ -93,14 +94,26 @@ const NON_WORK_ENTRY_TYPES = new Set<string>(["model_change", "thinking_level_ch
 
 /** 关闭间隙的条目是否代表"人机边界"：它前面的墙钟不计入 agent 工作时长。 */
 function closesHumanGap(entry: SessionEntry): boolean {
-  return isHumanEntry(entry) || NON_WORK_ENTRY_TYPES.has(entry.type);
+  return isHumanEntry(entry) || NON_WORK_ENTRY_TYPES.has(entry.type)
+    || (entry.type === "custom" && entry.customType === WORK_START_ENTRY_TYPE);
+}
+
+/** 被打断响应的流开始时刻。条目 timestamp 是落盘时刻；消息 timestamp 才是流开始，
+ *  两者之差是这一个响应的长度。没有可用的开始时刻时不回退。 */
+function abortedStart(entry: SessionEntry): number {
+  if (entry.type !== "message" || entry.message?.role !== "assistant" || entry.message?.stopReason !== "aborted") {
+    return Number.NaN;
+  }
+  const started = entry.message?.timestamp;
+  return typeof started === "number" && Number.isFinite(started) ? started : Number.NaN;
 }
 
 function entryUsage(entry: SessionEntry): UsageLike | undefined {
   if (entry.type === "message") {
-    const { role } = entry.message;
+    // 手工编辑/坏行可能缺 message 字段（静态类型说非空，运行时靠这条降级）。
+    const role = entry.message?.role;
     if (role !== "assistant" && role !== "toolResult") return undefined;
-    return entry.message.usage;
+    return entry.message?.usage;
   }
   if (entry.type === "branch_summary" || entry.type === "compaction") {
     return entry.usage;
@@ -137,13 +150,15 @@ function computeSessionDerived(entries: SessionEntries): DerivedResult {
   let prevTs = Number.NaN;
 
   for (const entry of entries) {
+    // 手工编辑/坏行可能造出 null/undefined 条目（静态类型说非空，运行时靠这条降级）。
+    if (!entry) continue;
     const usage = entryUsage(entry);
     addUsage(totals, usage);
     // 复用率快照只由 assistant 消息更新：toolResult/compaction 的 usage 往往只有
     // 部分维度（如仅 cost），把它们的缺失字段当 0 会把"未知"误报成"未命中"。
     // 输入三维度全零的 assistant 请求（provider 不报缓存维度）同理跳过；真实 miss 轮
-    // （有未缓存输入）与预热轮（只写）仍照常打回 0.00%。总量仍是生涯累计。
-    if (usage && entry.type === "message" && entry.message.role === "assistant") {
+    // （有未缓存输入）与预热轮（只写）仍照常打回 0.00%。总量仍累加当前会话文件的全部条目。
+    if (usage && entry.type === "message" && entry.message?.role === "assistant") {
       const input = finiteNonNegative(usage.input);
       const cacheRead = finiteNonNegative(usage.cacheRead);
       const cacheWrite = finiteNonNegative(usage.cacheWrite);
@@ -161,13 +176,20 @@ function computeSessionDerived(entries: SessionEntries): DerivedResult {
       // 时间倒流（手工编辑）计 0。
       if (!Number.isNaN(prevTs)) {
         const gap = ts - prevTs;
-        session.activeMs += gap > 0 && !closesHumanGap(entry) ? Math.min(gap, WORK_GAP_CAP_MS) : 0;
+        if (gap > 0 && !closesHumanGap(entry)) {
+          const counted = Math.min(gap, WORK_GAP_CAP_MS);
+          const started = abortedStart(entry);
+          // 只扣这一个响应：从流开始到落盘，且不超过本段已计入的长度。
+          // 流开始晚于上一条时，中间那段是别的工作，留在账上。
+          const rewind = Number.isFinite(started) ? Math.min(counted, Math.max(0, ts - started)) : 0;
+          session.activeMs += counted - rewind;
+        }
       }
       prevTs = ts;
     }
     // 轮次 = 用户消息数。一次提问的工具循环会产生多条 assistant 消息，
     // 按 assistant 计数会把"1 轮"显示成"3 轮"。
-    if (entry.type === "message" && entry.message.role === "user") session.turns++;
+    if (entry.type === "message" && entry.message?.role === "user") session.turns++;
   }
 
   return { totals, session, lastRequest };
@@ -206,8 +228,10 @@ function readContextField(ctx: ExtensionContext, theme: Theme, palette: Palette)
   }
 
   const numbers = formatContext(usage?.tokens, contextWindow);
-  const paint = (text: string) => theme.fg(contextColor(percent, palette.contextOk), text);
-  const head = `${icon} ${paint(`${Math.round(percent)}%`)}`;
+  // 颜色跟屏幕上的整数走：49.5 会显示成 50%，按原值上色就会停在正常色。
+  const shownPercent = Math.round(percent);
+  const paint = (text: string) => theme.fg(contextColor(shownPercent, palette.contextOk), text);
+  const head = `${icon} ${paint(`${shownPercent}%`)}`;
   const bare = `${head} ${paint(numbers)}`;
   const bareWidth = visibleWidth(bare);
 
@@ -272,37 +296,40 @@ function modelField(
 function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palette: Palette): string | undefined {
   const entries = Array.from(footerData.getExtensionStatuses().entries())
     .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
-
-  const chips: string[] = [];
+  const chips: { text: string; priority: number }[] = [];
   for (const [, text] of entries) {
     const mcp = parseMcpStatus(text);
     if (mcp) {
       if (mcp.enabled > 0) {
-        // 懒连接服务器闲置时 0 连接属正常，全未连用中性灰而不是故障红
-        const color = mcp.connected === 0 ? "muted" : mcp.connected < mcp.enabled ? "warning" : palette.mcpOk;
-        chips.push(`${theme.fg(palette.chrome, palette.icons.mcp)} ${theme.fg(color, `${mcp.connected}/${mcp.enabled}`)}`);
+        // 零连接可以是懒连接未激活，不推断故障；已识别的部分连接优先保留。
+        const partial = mcp.connected > 0 && mcp.connected < mcp.enabled;
+        const color = mcp.connected === 0 ? "muted" : partial ? "warning" : palette.mcpOk;
+        chips.push({
+          text: `${theme.fg(palette.chrome, palette.icons.mcp)} ${theme.fg(color, `${mcp.connected}/${mcp.enabled}`)}`,
+          priority: partial ? 1 : 2,
+        });
       }
       continue;
     }
-
     const lsp = parseLspStatus(text);
     if (lsp) {
       for (const chip of lsp) {
-        chips.push(
-          chip.failed
-            ? theme.fg("error", `${palette.icons.lsp} ✗ ${chip.names}`)
-            : `${theme.fg(palette.chrome, palette.icons.lsp)} ${theme.fg("text", chip.names)}`,
-        );
+        const names = chip.names ? ` ${chip.names}` : "";
+        chips.push({
+          text: chip.failed
+            ? theme.fg("error", `${palette.icons.lsp} ✗${names}`)
+            : `${theme.fg(palette.chrome, palette.icons.lsp)}${theme.fg("text", names)}`,
+          priority: chip.failed ? 0 : 2,
+        });
       }
       continue;
     }
-
     const clean = sanitizeStatusText(text);
-    if (clean) chips.push(clean);
+    if (clean) chips.push({ text: clean, priority: 2 });
   }
-
   if (chips.length === 0) return undefined;
-  return chips.join(theme.fg("dim", " · "));
+  return chips.sort((left, right) => left.priority - right.priority)
+    .map((chip) => chip.text).join(theme.fg("dim", " · "));
 }
 
 function normalizeRenderWidth(width: number): number {
@@ -359,7 +386,7 @@ function buildStatsLine(
   const palette = PALETTES[settings.theme];
   const pipe = theme.fg(palette.chrome, " │ ");
   const input = `${theme.fg(palette.input.icon, palette.icons.input)} ${paintValue(theme, palette.input, formatTokens(totals.input))}`;
-  // 在途估算与实时速率同源（usage 只在响应末尾落账），流式期间带 ≈ 前缀（下限估算）；
+  // 在途估算与实时速率同源（usage 只在响应末尾落账），流式期间带 ≈ 前缀（近似值）；
   // end 已报精确 output 时读数即落盘条目将累计的精确值，估算标记只留给真估算。
   const inflightSuffix = inflight > 0
     ? theme.fg(palette.inflight, ` ${inflightExact ? "+" : "≈+"}${formatTokens(inflight)}`)
@@ -520,8 +547,8 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings, n
       invalidate() {},
       render(width: number): string[] {
         const entries = ctx.sessionManager.getEntries();
-        // 落盘一旦完成（条目数增长），end 时保留的在途读数即释怀。
-        settleStream(ctx.sessionManager, entries.length);
+        // 仅在最终消息落盘后交接，其他扩展写入不清掉在途读数。
+        settleStream(ctx.sessionManager, entries);
         const derived = memoizedDerived(entries);
         return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale, now());
       },

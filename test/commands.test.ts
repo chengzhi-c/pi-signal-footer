@@ -162,7 +162,7 @@ test("showBranch and showTurns toggles take effect", async () => {
 
 test("showDuration, showSpeed and showCacheRatio toggles take effect", async () => {
   const { handlers, commands, agentDir } = createApi();
-  // 命中率括号带 locale 相关的 scope 标签，钉死英文避免随机器语言漂移
+  // 轮次标签固定英文，避免随机器语言漂移。
   pinLocale(agentDir, "en");
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
@@ -176,7 +176,7 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
   const originalNow = Date.now;
   await startSession(handlers, context);
   handleStream("start", { role: "assistant" }, 0, context.ctx.sessionManager);
-  handleStream("update", { role: "assistant" }, 1000, context.ctx.sessionManager);
+  handleStream("update", { role: "assistant", usage: { output: 1 } }, 1000, context.ctx.sessionManager);
   handleStream("end", { role: "assistant", usage: { output: 100 } }, 3000, context.ctx.sessionManager);
   assert.equal(Date.now, originalNow);
 

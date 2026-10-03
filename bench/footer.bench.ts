@@ -40,7 +40,7 @@ function makeFooter(count: number): { component: FooterComponent; entries: unkno
     isIdle: () => true,
     getContextUsage: () => ({ tokens: 150_000, contextWindow: 300_000, percent: 50 }),
     sessionManager: {
-      getEntries: () => entries,
+      getEntries: () => entries.slice(),
       getCwd: () => "C:/workspace/project",
       getSessionName: () => "benchmark",
     },
