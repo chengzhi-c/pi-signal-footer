@@ -19,14 +19,15 @@ import {
   type FooterFactory,
 } from "./harness.ts";
 
-test("installs the footer exactly once per session start", async () => {
+test("installs the footer exactly once per session start", async (t) => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   await startSession(handlers, context);
 
   assert.equal(context.footerCalls.length, 1);
   // 分支监听在工厂被 pi 调用时才注册，这里先实例化一次
-  openFooter(context);
+  const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
   assert.equal(context.branchListeners.size, 1);
 
   // resources_discover 紧随 session_start，不能触发第二次安装。
@@ -363,5 +364,5 @@ test("uses streamed usage.output when the provider pushes it mid-stream", () => 
   // 1s 跨度内增 500 tok → 500 tok/s。
   handleStream("update", { role: "assistant", usage: { output: 1500 } }, 2000, session);
   handleStream("update", { role: "assistant", usage: { output: 2000 } }, 3000, session);
-  assert.match(openFooter(context).render(160).join("\n"), /≈500 tok\/s/);
+  assert.match(renderLines(context, 160).join("\n"), /≈500 tok\/s/);
 });

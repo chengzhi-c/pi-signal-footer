@@ -5,6 +5,7 @@ import test from "node:test";
 import { MIN_HOST_VERSION } from "../index.ts";
 
 type PackageManifest = {
+  version: string;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   files?: string[];
@@ -41,4 +42,13 @@ test("keeps the runtime host floor, peer floor, and READMEs aligned", () => {
     const readme = readFileSync(new URL(path, import.meta.url), "utf8");
     assert.match(readme, new RegExp(">=" + floor));
   }
+});
+
+test("keeps package and lockfile project versions aligned", () => {
+  const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8")) as {
+    version: string;
+    packages: Record<string, { version: string }>;
+  };
+  assert.equal(lock.version, manifest.version);
+  assert.equal(lock.packages[""]?.version, manifest.version);
 });

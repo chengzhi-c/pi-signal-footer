@@ -55,7 +55,7 @@ test("sanitizes identity fields without removing third-party status colors", asy
   assert.doesNotMatch(output.replace("\u001b[31mRelay: ready\u001b[0m", ""), /\u001b/);
 });
 
-test("freezes auto locale for a footer factory", () => {
+test("freezes auto locale for a footer factory", (t) => {
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push({
     type: "message",
@@ -66,6 +66,7 @@ test("freezes auto locale for a footer factory", () => {
   const settings: FooterSettings = { ...DEFAULT_SETTINGS, locale: "zh" };
   installFooter(context.ctx as unknown as Parameters<typeof installFooter>[0], settings);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
   assert.match(footer.render(160).join("\n"), /1轮/);
 
   settings.locale = "en";
@@ -117,7 +118,7 @@ test("counts turns as user messages, not assistant responses", async () => {
   assert.doesNotMatch(output, /3轮/);
 });
 
-test("refreshes usage totals when a non-final entry is updated in place", async () => {
+test("refreshes usage totals when a non-final entry is updated in place", async (t) => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
   context.entries.push(
@@ -127,6 +128,10 @@ test("refreshes usage totals when a non-final entry is updated in place", async 
   await startSession(handlers, context);
 
   const footer = openFooter(context);
+  t.after(() => {
+    footer.dispose?.();
+    assert.equal(context.branchListeners.size, 0, "the retained footer must release its branch listener");
+  });
   const before = footer.render(120).join("\n");
   const firstEntry = context.entries[0];
   assert.ok(firstEntry?.message?.usage);
@@ -277,7 +282,7 @@ test("shows 0% when cache was only written, never read", async () => {
   assert.match(output, /↻ 0 \(0\.00%\)/);
 });
 
-test("sacrifices footer fields in the order the legend advertises", async () => {
+test("sacrifices footer fields in the order the legend advertises", async (t) => {
   // 图例用文字承诺了降级顺序，而顺序是实现里最容易漂移的东西，所以这里实测一次：
   // 从宽往窄扫，记录每个字段首次消失的宽度，再按图例声称的顺序断言两两先后。
   const { handlers } = createApi();
@@ -288,6 +293,7 @@ test("sacrifices footer fields in the order the legend advertises", async () => 
   context.footerData.getGitBranch = () => "main";
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   const disappearsAt = (test: (all: string) => boolean): number => {
     for (let width = 200; width >= 1; width--) {
@@ -315,7 +321,7 @@ test("sacrifices footer fields in the order the legend advertises", async () => 
   assert.match(legendLines("zh").join("\n"), /上下文.*→.*项目.*→.*分支\/推理.*→.*模型/);
 });
 
-test("keeps every rendered footer line within the requested width", async () => {
+test("keeps every rendered footer line within the requested width", async (t) => {
   const { handlers } = createApi();
   const context = createContext(
     { tokens: 125_000, contextWindow: 200_000, percent: 62.5 },
@@ -330,6 +336,7 @@ test("keeps every rendered footer line within the requested width", async () => 
   context.footerData.getGitBranch = () => "feature/a-really-long-branch-name-for-width-tests";
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   for (let width = 1; width <= 160; width++) {
     for (const line of footer.render(width)) {
@@ -338,7 +345,7 @@ test("keeps every rendered footer line within the requested width", async () => 
   }
 });
 
-test("keeps every footer line within width when the theme emits ANSI codes", async () => {
+test("keeps every footer line within width when the theme emits ANSI codes", async (t) => {
   // 恒等 theme 会让"着色码是否计入宽度"的错误不可见；真实主题一律 CSI 包裹 + reset。
   const { handlers } = createApi();
   const context = createContext(
@@ -352,6 +359,7 @@ test("keeps every footer line within width when the theme emits ANSI codes", asy
   context.footerData.getGitBranch = () => "feature/a-really-long-branch-name";
   await startSession(handlers, context);
   const footer = openFooter(context, createTheme({ ansi: true }));
+  t.after(() => footer.dispose?.());
 
   for (let width = 1; width <= 160; width++) {
     for (const line of footer.render(width)) {
@@ -417,11 +425,12 @@ test("context threshold color follows the rounded percent on screen", async () =
   assert.equal(below.get("49%"), "accent");
 });
 
-test("degrades safely when the host supplies a zero or non-finite render width", async () => {
+test("degrades safely when the host supplies a zero or non-finite render width", async (t) => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   for (const width of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.doesNotThrow(() => footer.render(width));
@@ -429,7 +438,7 @@ test("degrades safely when the host supplies a zero or non-finite render width",
   }
 });
 
-test("keeps the right-edge block flush and the column gap at least two spaces", async () => {
+test("keeps the right-edge block flush and the column gap at least two spaces", async (t) => {
   // §2.4 目视标准的机器化：右块顶到右边、两列之间至少 2 列空白。此前只断言"不超宽"，
   // 右缘对齐与列间距是视觉可读性的另一半，靠肉眼守不住回归。
   const { handlers } = createApi();
@@ -441,6 +450,7 @@ test("keeps the right-edge block flush and the column gap at least two spaces", 
   context.ctx.sessionManager.getSessionName = () => "fix-context-bar";
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   const gapBefore = (line: string, marker: string): number => {
     const at = line.indexOf(marker);
@@ -466,7 +476,7 @@ test("keeps the right-edge block flush and the column gap at least two spaces", 
   }
 });
 
-test("keeps the model identity visible at medium and wide layout widths", async () => {
+test("keeps the model identity visible at medium and wide layout widths", async (t) => {
   // 76–130 是身份曾经整块消失的区间；更窄的宽度由「模型名最后被截」的降级测试覆盖。
   const { handlers } = createApi();
   const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
@@ -475,6 +485,7 @@ test("keeps the model identity visible at medium and wide layout widths", async 
   context.ctx.sessionManager.getSessionName = () => "fix-context-bar";
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   // 模型名必须出现在首行，直到宽度连模型名本身都放不下
   for (const width of [76, 80, 88, 100, 112, 130]) {
@@ -483,7 +494,7 @@ test("keeps the model identity visible at medium and wide layout widths", async 
   }
 });
 
-test("degrades the identity block instead of truncating it when the branch is long", async () => {
+test("degrades the identity block instead of truncating it when the branch is long", async (t) => {
   // 身份阶梯第三档（只留 provider › model）只有当 modelField 明显宽于 modelCore 时才起作用，
   // 所以这里必须带上推理等级与长分支名；否则第二、三档字符串完全相同，测试形同虚设。
   const { handlers } = createApi();
@@ -495,6 +506,7 @@ test("degrades the identity block instead of truncating it when the branch is lo
   context.footerData.getGitBranch = () => "feature/a-very-long-branch-name-that-eats-space";
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   for (const width of [76, 80, 88, 96, 104]) {
     const line1 = footer.render(width)[0] ?? "";
@@ -505,7 +517,7 @@ test("degrades the identity block instead of truncating it when the branch is lo
   }
 });
 
-test("truncates the model name only at or below the measured width", async () => {
+test("truncates the model name only at or below the measured width", async (t) => {
   // 钉住实测边界：≤40 截断、≥41 完整。漂移时先重跑宽度扫描再更新本钉。
   const { handlers } = createApi();
   const context = createContext({ tokens: 125_000, contextWindow: 200_000, percent: 62.5 });
@@ -516,6 +528,7 @@ test("truncates the model name only at or below the measured width", async () =>
   context.footerData.getGitBranch = () => "feature/a-very-long-branch-name-that-eats-space";
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   assert.ok(!footer.render(40)[0]?.includes("deepseek-v4-flash-0731"));
   for (const width of [41, 45, 50]) {
@@ -523,7 +536,7 @@ test("truncates the model name only at or below the measured width", async () =>
   }
 });
 
-test("never renders a richer context part without the parts that outrank it", async () => {
+test("never renders a richer context part without the parts that outrank it", async (t) => {
   // 上下文降级阶梯：条(装饰) → 数值 → 百分比(内容)。任一行里，靠后的部分出现时
   // 靠前的部分必须都在——否则说明丢错了顺序。跨宽度的档位切换不受此约束，
   // 因为身份块降级会腾出空间让上下文重新变富，那是预期行为。
@@ -532,6 +545,7 @@ test("never renders a richer context part without the parts that outrank it", as
   context.ctx.sessionManager.getCwd = () => "C:\\Users\\dev\\a-very-long-project-directory-name-here";
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
 
   for (let width = 1; width <= 160; width++) {
     const line = footer.render(width)[0] ?? "";
@@ -548,7 +562,7 @@ test("never renders a richer context part without the parts that outrank it", as
   assert.doesNotMatch(footer.render(40)[0] ?? "", /63%/);
 });
 
-test("keeps the context bar within its 3..20 decoration budget", async () => {
+test("keeps the context bar within its 3..20 decoration budget", async (t) => {
   // 任务书把上下文条钉成纯装饰：条宽只在 3..20 之间，不许拉满整行冒充进度条。
   // 预算是实现常量（footer.ts 的 MIN/MAX_CONTEXT_BAR），没有这条断言改动它们不会红。
   const { handlers } = createApi();
@@ -560,6 +574,7 @@ test("keeps the context bar within its 3..20 decoration budget", async () => {
   for (const sessionName of ["", "fix-context-bar", "s".repeat(40)]) {
     context.ctx.sessionManager.getSessionName = () => sessionName;
     const footer = openFooter(context);
+    t.after(() => footer.dispose?.());
     for (let width = 1; width <= 200; width++) {
       for (const line of footer.render(width)) {
         const bar = line.match(/\[([━─]+)\]/);
@@ -944,7 +959,7 @@ test("keeps our own stats intact and truncates third-party statuses when line 2 
   await startSession(handlers, context);
 
   // 112 是宽布局下界，此处统计块 + 状态块已超出可用宽度，必须有一侧让位
-  const line2 = openFooter(context).render(112)[1] ?? "";
+  const line2 = renderLines(context, 112)[1] ?? "";
   assert.ok(visibleWidth(line2) <= 112);
   assert.match(line2, /↓ 100/);
   assert.match(line2, /\$0\.500/);

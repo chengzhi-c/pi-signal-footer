@@ -4,7 +4,7 @@ import test from "node:test";
 import { createOutputEstimator, estimateOutputTokens, type EstimateContent } from "../format.ts";
 import { handleStream, inFlightTokens, streamRate } from "../stream.ts";
 
-import { createApi, createContext, createStreamFixture, openFooter, pinLocale, renderLines, startSession, type Harness } from "./harness.ts";
+import { createApi, createContext, createStreamFixture, pinLocale, renderLines, startSession, type Harness } from "./harness.ts";
 
 type TimedEntry = { ts: string; role: string };
 
@@ -139,7 +139,7 @@ test("the live rate tracks an acceleration within the streaming window", () => {
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(40 * index) }] }, index * 100, session);
   }
   setNow(500);
-  const slow = openFooter(context).render(160).join("\n");
+  const slow = renderLines(context, 160).join("\n");
   // 快段：每 100ms 增 400 字符 ≈ 100 tok；14 个 chunk 后（t=1900）
   // 1500ms 回看窗口已把慢段样本全部挤出。
   for (let k = 1; k <= 14; k++) {
@@ -147,7 +147,7 @@ test("the live rate tracks an acceleration within the streaming window", () => {
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(200 + 400 * k) }] }, 500 + k * 100, session);
   }
   setNow(1900);
-  const fast = openFooter(context).render(160).join("\n");
+  const fast = renderLines(context, 160).join("\n");
 
   const slowRate = Number(slow.match(/≈(\d+) tok\/s/)?.[1] ?? 0);
   const fastRate = Number(fast.match(/≈(\d+) tok\/s/)?.[1] ?? 0);
@@ -166,14 +166,14 @@ test("the live rate falls when streaming decelerates", () => {
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(400 * index) }] }, index * 100, session);
   }
   setNow(500);
-  const fast = openFooter(context).render(160).join("\n");
+  const fast = renderLines(context, 160).join("\n");
   // 慢段：每 100ms 只增 40 字符 ≈ 10 tok；14 个 chunk 后回看窗口把快段样本挤出
   for (let k = 1; k <= 14; k++) {
     setNow(500 + k * 100);
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(2000 + 40 * k) }] }, 500 + k * 100, session);
   }
   setNow(1900);
-  const slow = openFooter(context).render(160).join("\n");
+  const slow = renderLines(context, 160).join("\n");
 
   const fastRate = Number(fast.match(/≈(\d+) tok\/s/)?.[1] ?? 0);
   const slowRate = Number(slow.match(/≈(\d+) tok\/s/)?.[1] ?? 0);
@@ -187,7 +187,7 @@ test("an immature rate uses the token delta over the same observed span", () => 
   const { context, session, setNow } = createStreamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
   handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(400) }] }, 1000, session);
-  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
+  assert.doesNotMatch(renderLines(context, 160).join("\n"), /tok\/s/);
   handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(440) }] }, 1100, session);
   assert.equal(streamRate(session), "≈100 tok/s");
   setNow(31_200);
@@ -206,7 +206,7 @@ test("the window survives sustained chunk rates above the old sample cap", () =>
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(chars) }] }, k * 5, session);
   }
   setNow(2000);
-  const output = openFooter(context).render(160).join("\n");
+  const output = renderLines(context, 160).join("\n");
   // 256 上限下窗口全为快段：50 tok / 5ms = 10000 tok/s。
   // 全程平均退化的旧上限给 17120/1.995 ≈ 8580 —— 阈值 9500 卡住悬崖。
   const rate = Number(output.match(/≈(\d+) tok\/s/)?.[1] ?? 0);
@@ -267,7 +267,7 @@ test("a tool-call-only stream surfaces a live rate and an in-flight estimate", (
     }, i * 100, session);
   }
   setNow(400 * 100);
-  const output = openFooter(context).render(160).join("\n");
+  const output = renderLines(context, 160).join("\n");
   // 12000 字符参数 ≈ 6007 tok（JSON 密度 2）→ 在途 ≈+6.0k；
   // 回看窗口覆盖最后 1500ms（15 个 chunk）：(6007-5782) tok / 1.5s = ≈150 tok/s
   assert.match(output, /≈\+6\.0k/);
@@ -372,7 +372,7 @@ function liveClockFixture() {
 }
 
 function timeOf(context: Harness): string {
-  return openFooter(context).render(160).join("\n").match(/◷\s*([\dhms]+)/)?.[1] ?? "";
+  return renderLines(context, 160).join("\n").match(/◷\s*([\dhms]+)/)?.[1] ?? "";
 }
 
 test("the duration does not jump when the streamed entry lands", () => {
@@ -391,6 +391,7 @@ test("the duration does not jump when the streamed entry lands", () => {
   const after = timeOf(fx.context);
   assert.equal(before, "2m");
   assert.equal(after, "2m"); // 同一段墙钟由条目原地接管：跳变 0ms
+  assert.equal(fx.context.branchListeners.size, 0, "one-shot duration renders must release branch listeners");
 });
 
 // message_end 清 timing 后，工具执行期靠 ctx.isIdle()===false 继续计时。

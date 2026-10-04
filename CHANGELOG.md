@@ -4,6 +4,8 @@
 
 ## Unreleased / 未发布
 
+## 0.5.1
+
 - **库存刷新 / Inventory refresh**：状态栏启用时每秒检查公开 API 的本地内存库存，仅显示结果变化才重绘，销毁时停止。不探测服务器、不联网；库存不是健康状态，仍依赖宿主公开 API 兼容。 / While active, the footer checks public in-memory inventories once per second, redraws only when the displayed status changes, and stops on disposal. It never polls servers or the network; inventory is not health and requires compatible public host APIs.
 - **MCP 状态与外观 / MCP status and styling**：支持宿主发布的原生已连/启用比例、明确故障/待处理数量与非隐藏工具数，复用 classic/vivid 状态配色。无健康状态时回退工具/扩展注册库存：标签灰色、数值用主题读数色，不冒充连接健康。原生健康需宿主发布，本包不自动修改 CLI。 / Supports host-published native connectivity, explicit attention counts and non-hidden tools with classic/vivid colors. Inventory fallback keeps muted labels and themed values, never treating tools/registrations as health. Native health requires a host publisher; this package does not patch the CLI.
 - **实时读数 / Live readings**：`≈` 明确为可能高估或低估的近似值；变化的正 provider 用量校准在途输出，向下纠正时重置速率样本。单样本不报速率，空更新不启动首输出时钟。 / `≈` means approximation; changed positive provider usage calibrates in-flight output, resetting rate samples on downward corrections. One sample has no rate; empty updates do not start the output clock.

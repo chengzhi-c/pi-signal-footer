@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { handleStream } from "../stream.ts";
 
-import { createApi, createContext, createStreamFixture, openFooter, pinLocale, renderLines, startSession } from "./harness.ts";
+import { createApi, createContext, createStreamFixture, pinLocale, renderLines, startSession } from "./harness.ts";
 
 const rateOf = (output: string): number | undefined => {
   const match = output.match(/≈(\d+) tok\/s/);
@@ -23,20 +23,21 @@ test("the live rate holds its last measurement while the stream is stalled", () 
     handleStream("update", chunk(step), step * 40, session);
   }
   setNow(3000);
-  const warm = rateOf(openFooter(context).render(160).join("\n"));
+  const warm = rateOf(renderLines(context, 160).join("\n"));
   assert.equal(warm, 250, "warm-up must read the true generation rate");
 
   // 停顿 4s：期间可以多次重渲染，读数必须与停顿前一致（分母不含样本之后的闲置）。
   const stalled: (number | undefined)[] = [];
   for (const extra of [500, 1000, 2000, 3000, 4000]) {
     setNow(3000 + extra);
-    stalled.push(rateOf(openFooter(context).render(160).join("\n")));
+    stalled.push(rateOf(renderLines(context, 160).join("\n")));
   }
   assert.deepEqual(
     stalled,
     [250, 250, 250, 250, 250],
     `a stalled stream must keep the last measured rate, got ${JSON.stringify(stalled)}`,
   );
+  assert.equal(context.branchListeners.size, 0, "one-shot rate renders must release branch listeners");
 });
 
 test("the live rate reflects the resumed pace instead of the pre-stall segment", () => {
@@ -58,7 +59,7 @@ test("the live rate reflects the resumed pace instead of the pre-stall segment",
     text += 40;
     setNow(now);
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(text) }] }, now, session);
-    resumed.push(rateOf(openFooter(context).render(160).join("\n")));
+    resumed.push(rateOf(renderLines(context, 160).join("\n")));
   }
   assert.deepEqual(resumed, [250, 250, 250, 50, 50, 50], "resume must hold the last rate only until the new segment matures");
 });
@@ -69,9 +70,9 @@ test("empty updates do not start the first-output clock and one sample has no ra
   handleStream("update", { role: "assistant", content: [] }, 100, session);
   handleStream("update", { role: "assistant", content: [{ type: "thinking", thinking: "" }] }, 200, session);
   handleStream("update", chunk(1), 1000, session);
-  assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
+  assert.doesNotMatch(renderLines(context, 160).join("\n"), /tok\/s/);
   handleStream("end", { role: "assistant", usage: { output: 50 } }, 2000, session);
-  assert.match(openFooter(context).render(160).join("\n"), /50 tok\/s/);
+  assert.match(renderLines(context, 160).join("\n"), /50 tok\/s/);
 });
 
 test("a slow stream keeps falling back to the running average, never to a bogus value", () => {
@@ -83,7 +84,7 @@ test("a slow stream keeps falling back to the running average, never to a bogus 
     const now = step * 1600;
     setNow(now);
     handleStream("update", chunk(step), now, session);
-    readings.push(rateOf(openFooter(context).render(160).join("\n")));
+    readings.push(rateOf(renderLines(context, 160).join("\n")));
   }
   assert.equal(readings[0], undefined, "the first sample has no span and must not print a rate");
   assert.deepEqual(readings, [undefined, 6, 6, 6, 6], "10 tokens per 1.6s must use the observed average");
@@ -130,27 +131,27 @@ test("the in-flight reading turns exact at end and the landed frame is a no-op",
 
   handleStream("start", { role: "assistant" }, 5_000, session);
   handleStream("update", streamed, 6_000, session);
-  const streamingText = openFooter(context).render(200).join("\n");
+  const streamingText = renderLines(context, 200).join("\n");
   const streaming = outputOf(streamingText);
   assert.equal(inflightMarkerOf(streamingText), "≈", "while streaming the suffix is the estimate marker");
 
   // 宿主顺序：扩展先收到 message_end，条目在其后才落盘。end 携带精确 output：
   // 在途读数立即定格为落盘条目将累计的精确增量，交接窗口内不再展示陈旧估算。
   handleStream("end", finalMessage, 7_000, session, context.entries.length);
-  const beforePersistText = openFooter(context).render(200).join("\n");
+  const beforePersistText = renderLines(context, 200).join("\n");
   const beforePersist = outputOf(beforePersistText);
   assert.equal(inflightMarkerOf(beforePersistText), "+", "an exact end drops the estimate marker");
   assert.match(beforePersistText, /3200 tok\/s/);
 
   context.entries.push({ type: "custom", timestamp: new Date(6_900).toISOString() });
-  assert.equal(outputOf(openFooter(context).render(200).join("\n")), beforePersist, "an unrelated entry must not settle the pending message");
+  assert.equal(outputOf(renderLines(context, 200).join("\n")), beforePersist, "an unrelated entry must not settle the pending message");
 
   context.entries.push({
     type: "message",
     timestamp: new Date(7_000).toISOString(),
     message: finalMessage,
   } as never);
-  const afterPersistText = openFooter(context).render(200).join("\n");
+  const afterPersistText = renderLines(context, 200).join("\n");
   const afterPersist = outputOf(afterPersistText);
 
   assert.ok(streaming !== undefined && beforePersist !== undefined && afterPersist !== undefined);
@@ -171,11 +172,11 @@ test("a new request does not inherit the previous in-flight reading", async () =
   handleStream("start", { role: "assistant" }, 0, session);
   handleStream("update", message, 1_000, session);
   handleStream("end", message, 2_000, session, context.entries.length);
-  const carried = outputOf(openFooter(context).render(200).join("\n"));
+  const carried = outputOf(renderLines(context, 200).join("\n"));
 
   // 下一次请求开始：即使条目仍未落盘，也必须清掉上一轮的在途值。
   handleStream("start", { role: "assistant" }, 3_000, session);
-  const fresh = outputOf(openFooter(context).render(200).join("\n"));
+  const fresh = outputOf(renderLines(context, 200).join("\n"));
   assert.ok(carried !== undefined && fresh !== undefined);
   assert.ok(fresh < carried, `a new request must not inherit the previous in-flight reading: carried=${carried} fresh=${fresh}`);
 });
@@ -197,7 +198,7 @@ test("an estimate end keeps the ≈ marker and the estimate value until the entr
   handleStream("start", { role: "assistant" }, 5_000, session);
   handleStream("update", message, 6_000, session);
   handleStream("end", message, 7_000, session, context.entries.length);
-  const ended = openFooter(context).render(200).join("\n");
+  const ended = renderLines(context, 200).join("\n");
   assert.equal(inflightMarkerOf(ended), "≈", "an estimate handoff keeps the ≈ marker");
   assert.equal(outputOf(ended), 3_200, "the estimate handoff keeps the estimate value until the entry lands");
 });
@@ -257,6 +258,6 @@ test("missing, zero or invalid end usage keeps the estimated rate", () => {
     handleStream("start", { role: "assistant" }, 0, session);
     handleStream("update", chunk(25), 1000, session);
     handleStream("end", { role: "assistant", usage: { output } }, 2000, session);
-    assert.match(openFooter(context).render(160).join("\n"), /≈250 tok\/s/);
+    assert.match(renderLines(context, 160).join("\n"), /≈250 tok\/s/);
   }
 });
