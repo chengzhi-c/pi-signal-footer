@@ -418,7 +418,7 @@ export function sanitizePlainText(text: unknown): string {
     .trim();
 }
 
-/** 识别原生发布状态和 pi-mcp-adapter；库存数量不代表连接健康。 */
+/** 识别原生、紧凑与完整 MCP 比例状态；库存数量不代表连接健康。 */
 export function parseMcpStatus(text: unknown): McpStatus | undefined {
   // Number(undefined) 即 NaN，会被 isSafeInteger 拦下，故参数放宽后调用侧不再收窄。
   const parseCounts = (connectedText: string | undefined, enabledText: string | undefined): McpStatus | undefined => {
@@ -452,7 +452,7 @@ export function parseMcpStatus(text: unknown): McpStatus | undefined {
 }
 
 /**
- * 识别 pi-lens 的 LSP 状态段："LSP Active: a, b" / "LSP Failed: x" / "LSP Inactive"，
+ * 识别 LSP 状态段："LSP Active: a, b" / "LSP Failed: x" / "LSP Inactive"，
  * Active 与 Failed 可能以 " · " 合并在同一条状态里。Inactive 返回空数组（无活动不显示）。
  */
 export function parseLspStatus(text: unknown): LspChip[] | undefined {
@@ -461,7 +461,7 @@ export function parseLspStatus(text: unknown): LspChip[] | undefined {
   const chips: LspChip[] = [];
   for (const segment of raw.split(" · ")) {
     const trimmed = segment.trim();
-    // pi-lens 4.3 的紧凑档没有服务器名：LSP ✓ / LSP ✗。
+    // 紧凑状态没有服务器名：LSP ✓ / LSP ✗。
     if (trimmed === "LSP ✓" || trimmed === "LSP ✗") {
       chips.push({ failed: trimmed === "LSP ✗", names: "" });
       continue;

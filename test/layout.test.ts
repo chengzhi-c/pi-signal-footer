@@ -734,7 +734,7 @@ test("paints MCP connectivity by state, never red for idle lazy connects", async
   assert.equal(colors.get("LSP ✗ clangd"), "error", `failed LSP must be error red: ${output}`);
 });
 
-test("renders compact pi-lens status without a dangling separator", async () => {
+test("renders compact LSP status without a dangling separator", async () => {
   const { handlers } = createApi();
   const context = createContext(
     { tokens: 0, contextWindow: 1000, percent: 0 },

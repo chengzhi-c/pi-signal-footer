@@ -123,9 +123,7 @@ test("parses published native MCP health without treating inventories as connect
   }
 });
 
-// Text contract with pi-mcp-adapter status strings; this package does not
-// depend on that extension and cannot pin the wording to a version.
-test("parses pi-mcp-adapter compact and full status variants", () => {
+test("parses compact and full MCP status variants", () => {
   assert.deepEqual(parseMcpStatus("MCP 1/1"), { connected: 1, enabled: 1 });
   assert.deepEqual(parseMcpStatus("MCP 0/2"), { connected: 0, enabled: 2 });
   assert.deepEqual(parseMcpStatus("\u001B[36mMCP 2/3\u001B[0m"), { connected: 2, enabled: 3 });
@@ -145,7 +143,7 @@ test("rejects finite MCP counts beyond the safe integer range", () => {
   assert.equal(parseMcpStatus(`MCP ${unsafe}/${unsafe}`), undefined);
 });
 
-test("parses pi-lens LSP segments and hides inactive state", () => {
+test("parses LSP segments and hides inactive state", () => {
   assert.deepEqual(parseLspStatus("LSP Active: typescript, python"), [{ failed: false, names: "typescript, python" }]);
   assert.deepEqual(parseLspStatus("\u001B[32mLSP Active: typescript\u001B[0m"), [{ failed: false, names: "typescript" }]);
   assert.deepEqual(parseLspStatus("LSP Failed: clangd"), [{ failed: true, names: "clangd" }]);
@@ -156,7 +154,7 @@ test("parses pi-lens LSP segments and hides inactive state", () => {
   assert.deepEqual(parseLspStatus("LSP Inactive"), []);
   assert.equal(parseLspStatus("LSP Active:    "), undefined);
   assert.equal(parseLspStatus("未知扩展文案"), undefined);
-  // pi-lens 4.3 的 lens-compact-lsp-status：没有服务器名，只有 ✓ / ✗。
+  // 紧凑状态没有服务器名，只有 ✓ / ✗。
   assert.deepEqual(parseLspStatus("LSP ✓"), [{ failed: false, names: "" }]);
   assert.deepEqual(parseLspStatus("LSP ✗"), [{ failed: true, names: "" }]);
   assert.deepEqual(parseLspStatus("\u001B[32mLSP ✓\u001B[0m · \u001B[31mLSP ✗\u001B[0m"), [

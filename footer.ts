@@ -311,8 +311,8 @@ function readMcpInventory(source: McpInfoProvider | undefined, theme: Theme, pal
 }
 
 /**
- * 扩展状态槽（右下角）：识别原生 MCP / pi-mcp-adapter / pi-lens 后按本插件色板重排，
- * 未知文案原样放行（保留源插件着色），对方改版时只会退化为原文而不会崩。
+ * 扩展状态槽（右下角）：识别 MCP / LSP 状态后按本插件色板重排，
+ * 未知状态保留原文与源着色，格式变化时退化为原文。
  */
 function statusField(footerData: ReadonlyFooterDataProvider, theme: Theme, palette: Palette, locale: ReturnType<typeof resolveLocale>, mcpInfo?: McpInfoProvider): string | undefined {
   const entries = Array.from(footerData.getExtensionStatuses().entries())
