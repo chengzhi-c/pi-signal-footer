@@ -144,7 +144,8 @@ export function openFooter(context: Harness, theme = createTheme(), tui: TuiStub
 }
 
 export function renderLines(context: Harness, width = 120, theme = createTheme()): string[] {
-  return openFooter(context, theme).render(width);
+  const footer = openFooter(context, theme);
+  try { return footer.render(width); } finally { footer.dispose?.(); }
 }
 
 export async function startSession(handlers: Map<string, Handler>, context: Harness) {

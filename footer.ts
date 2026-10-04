@@ -288,6 +288,7 @@ function modelField(
 }
 
 const MCP_TOOL_PREFIX = "mcp__";
+const MCP_INVENTORY_REFRESH_MS = 1000;
 type McpInfoProvider = {
   getAllTools?: () => readonly { name: string; exposure?: string; namespace?: { name: string } }[];
   getMcpServers?: () => readonly unknown[];
@@ -523,7 +524,7 @@ function renderFooter(
   settings: FooterSettings,
   locale: ReturnType<typeof resolveLocale>,
   now: number,
-  mcpInfo?: McpInfoProvider,
+  statuses: string | undefined,
 ): string[] {
   const palette = PALETTES[settings.theme];
   const view: StatsView = {
@@ -547,7 +548,7 @@ function renderFooter(
     buildIdentityLevels(ctx, footerData, theme, settings, palette),
     readContextField(ctx, theme, palette),
     buildStatsLine(theme, view),
-    statusField(footerData, theme, palette, locale, mcpInfo),
+    statuses,
   );
 }
 
@@ -556,6 +557,17 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings, n
   ctx.ui.setFooter((tui, theme, footerData) => {
     const locale = resolveLocale(settings.locale);
     const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+    const readStatus = () => statusField(footerData, theme, PALETTES[settings.theme], locale, mcpInfo);
+    let lastStatus: string | undefined;
+    // 宿主没有公开的库存变更通知；只检查内存中的显示结果，不触碰连接。
+    const refreshTimer = mcpInfo?.getAllTools || mcpInfo?.getMcpServers ? setInterval(() => {
+      const nextStatus = readStatus();
+      if (nextStatus !== lastStatus) {
+        lastStatus = nextStatus;
+        tui.requestRender();
+      }
+    }, MCP_INVENTORY_REFRESH_MS) : undefined;
+    refreshTimer?.unref();
     // getEntries() 每次返回新数组（同条目引用），纯重绘也触发全量扫描；
     // 会话 append-only，首末引用+数值未变即复用，数据变化时全量重算兜底。
     let memo: DerivedMemo | undefined;
@@ -577,14 +589,18 @@ export function installFooter(ctx: ExtensionContext, settings: FooterSettings, n
     };
 
     return {
-      dispose: unsubscribe,
+      dispose() {
+        clearInterval(refreshTimer);
+        unsubscribe();
+      },
       invalidate() {},
       render(width: number): string[] {
         const entries = ctx.sessionManager.getEntries();
         // 仅在最终消息落盘后交接，其他扩展写入不清掉在途读数。
         settleStream(ctx.sessionManager, entries);
         const derived = memoizedDerived(entries);
-        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale, now(), mcpInfo);
+        lastStatus = readStatus();
+        return renderFooter(ctx, footerData, theme, normalizeRenderWidth(width), derived, settings, locale, now(), lastStatus);
       },
     };
   });

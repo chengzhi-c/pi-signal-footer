@@ -571,7 +571,174 @@ test("keeps the context bar within its 3..20 decoration budget", async () => {
   }
 });
 
-test("shows native MCP tools without extension status and refreshes on redraw", async () => {
+test("refreshes late MCP inventory only when its displayed value changes", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  const tools: { name: string; exposure?: string }[] = [];
+  const registered: object[] = [];
+  let reads = 0, redraws = 0;
+  const inventory = { getAllTools: () => { reads++; return tools; }, getMcpServers: () => registered };
+  installFooter(context.ctx as unknown as Parameters<typeof installFooter>[0], { ...DEFAULT_SETTINGS, locale: "en" }, Date.now, inventory);
+  const footer = openFooter(context, createTheme(), { requestRender: () => { redraws++; } });
+  t.after(() => footer.dispose?.());
+  const render = () => footer.render(160).join("\n");
+  assert.doesNotMatch(render(), /MCP/);
+  t.mock.timers.tick(999);
+  assert.equal(redraws, 0);
+  tools.push({ name: "mcp__fixture__hidden", exposure: "hidden" }, { name: "read" });
+  t.mock.timers.tick(1);
+  assert.equal(redraws, 0, "hidden and non-MCP tools do not change the displayed inventory");
+  tools.push({ name: "mcp__fixture__one", exposure: "direct" }, { name: "mcp__fixture__two", exposure: "deferred" });
+  t.mock.timers.tick(1000);
+  assert.equal(redraws, 1, "late discovery must request its own redraw");
+  assert.match(render(), /MCP tools 2/);
+  tools[2]!.name = "mcp__fixture__renamed";
+  const entries = t.mock.method(context.ctx.sessionManager, "getEntries");
+  t.mock.timers.tick(3000);
+  assert.equal(redraws, 1, "unchanged display does not redraw");
+  assert.equal(entries.mock.callCount(), 0, "inventory checks do not scan session history");
+  tools[2]!.exposure = "hidden";
+  t.mock.timers.tick(1000);
+  assert.equal(redraws, 2);
+  assert.match(render(), /MCP tools 1/);
+  tools[3]!.exposure = "hidden";
+  registered.push({}, {});
+  t.mock.timers.tick(1000);
+  assert.equal(redraws, 3);
+  assert.match(render(), /MCP reg 2/);
+  registered.length = 0;
+  t.mock.timers.tick(1000);
+  assert.equal(redraws, 4);
+  assert.doesNotMatch(render(), /MCP/);
+  footer.dispose?.();
+  const stoppedReads = reads;
+  tools.push({ name: "mcp__fixture__later" });
+  t.mock.timers.tick(10_000);
+  assert.equal(reads, stoppedReads, "disposed components stop polling");
+  assert.equal(redraws, 4);
+  assert.equal(context.branchListeners.size, 0);
+});
+
+test("keeps reported MCP health authoritative during inventory refresh", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: "MCP 0/0" });
+  let reads = 0, redraws = 0;
+  const inventory = { getAllTools: () => { reads++; return [{ name: "mcp__fixture__one" }]; } };
+  installFooter(context.ctx as unknown as Parameters<typeof installFooter>[0], { ...DEFAULT_SETTINGS, locale: "en" }, Date.now, inventory);
+  const footer = openFooter(context, createTheme(), { requestRender: () => { redraws++; } });
+  t.after(() => footer.dispose?.());
+  assert.doesNotMatch(footer.render(160).join("\n"), /MCP/);
+  t.mock.timers.tick(3000);
+  assert.equal(reads, 0, "0/0 suppresses inventory reads, including timer checks");
+  assert.equal(redraws, 0);
+  for (const [status, expected] of [
+    ["MCP native 1/1 failed 0", /MCP 1\/1 · tools 1/],
+    ["MCP native 0/1 failed 1", /MCP 0\/1 ✗1 · tools 1/],
+  ] as const) {
+    context.extensionStatuses.set("mcp", status);
+    const before: number = redraws;
+    t.mock.timers.tick(1000);
+    assert.equal(redraws, before + 1);
+    assert.match(footer.render(160).join("\n"), expected);
+  }
+  context.extensionStatuses.delete("mcp");
+  t.mock.timers.tick(1000);
+  const output = footer.render(160).join("\n");
+  assert.match(output, /MCP tools 1/);
+  assert.doesNotMatch(output, /MCP \d+\/\d+|✗/);
+});
+
+test("recovers MCP inventory after API errors without inventing zero", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  let toolsAvailable = false, registrationsAvailable = true, redraws = 0;
+  const inventory = {
+    getAllTools: () => { if (!toolsAvailable) throw new Error("synthetic unavailable"); return [{ name: "mcp__fixture__one" }]; },
+    getMcpServers: () => { if (!registrationsAvailable) throw new Error("synthetic unavailable"); return []; },
+  };
+  installFooter(context.ctx as unknown as Parameters<typeof installFooter>[0], { ...DEFAULT_SETTINGS, locale: "en" }, Date.now, inventory);
+  const footer = openFooter(context, createTheme(), { requestRender: () => { redraws++; } });
+  t.after(() => footer.dispose?.());
+  assert.doesNotMatch(footer.render(160).join("\n"), /MCP/);
+  assert.doesNotThrow(() => t.mock.timers.tick(3000));
+  assert.equal(redraws, 0);
+  toolsAvailable = true;
+  t.mock.timers.tick(1000);
+  assert.equal(redraws, 1);
+  assert.match(footer.render(160).join("\n"), /MCP tools 1/);
+  toolsAvailable = false;
+  registrationsAvailable = false;
+  assert.doesNotThrow(() => t.mock.timers.tick(1000));
+  assert.equal(redraws, 2);
+  assert.doesNotMatch(footer.render(160).join("\n"), /MCP/);
+  toolsAvailable = true;
+  t.mock.timers.tick(1000);
+  assert.equal(redraws, 3);
+  assert.match(footer.render(160).join("\n"), /MCP tools 1/);
+});
+
+test("owns one inventory refresh across off, reinstall, reload and shutdown", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let reads = 0, redraws = 0;
+  const tools: { name: string }[] = [];
+  const { handlers, commands, agentDir } = createApi(tempAgentDir(), "1.0.2", [], {
+    getAllTools: () => { reads++; return tools; },
+    getMcpServers: () => [],
+  });
+  pinLocale(agentDir, "en");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  let active: ReturnType<typeof openFooter> | undefined;
+  t.after(() => active?.dispose?.());
+  const setFooter = context.ctx.ui.setFooter;
+  context.ctx.ui.setFooter = (factory) => {
+    active?.dispose?.();
+    setFooter(factory);
+    active = factory ? openFooter(context, createTheme(), { requestRender: () => { redraws++; } }) : undefined;
+    active?.render(160);
+  };
+  const tickOnce = () => {
+    const before = reads;
+    t.mock.timers.tick(1000);
+    assert.equal(reads - before, 1, "only the current component owns an interval");
+  };
+  await startSession(handlers, context);
+  tools.push({ name: "mcp__fixture__one" });
+  tickOnce();
+  assert.equal(redraws, 1);
+  assert.match(active!.render(160).join("\n"), /MCP tools 1/);
+  await commands.get("signal-footer")!("theme vivid", context.ctx);
+  tickOnce();
+  assert.equal(redraws, 1, "reinstall establishes the current display without an extra redraw");
+  assert.match(active!.render(160).join("\n"), /🔌 MCP tools 1/);
+  await handlers.get("session_start")!({ type: "session_start", reason: "reload" }, context.ctx);
+  tickOnce();
+  await commands.get("signal-footer")!("off", context.ctx);
+  const offReads = reads;
+  tools.push({ name: "mcp__fixture__two" });
+  t.mock.timers.tick(5000);
+  assert.equal(reads, offReads);
+  assert.equal(context.branchListeners.size, 0);
+  await commands.get("signal-footer")!("on", context.ctx);
+  assert.match(active!.render(160).join("\n"), /MCP tools 2/);
+  tickOnce();
+  await handlers.get("session_shutdown")!({ type: "session_shutdown" }, context.ctx);
+  const stoppedReads = reads;
+  t.mock.timers.tick(5000);
+  assert.equal(reads, stoppedReads);
+  assert.equal(context.branchListeners.size, 0);
+});
+
+test("does not start inventory refresh without inventory APIs", (t) => {
+  const interval = t.mock.method(globalThis, "setInterval");
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  installFooter(context.ctx as unknown as Parameters<typeof installFooter>[0], DEFAULT_SETTINGS);
+  const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
+  assert.match(footer.render(160).join("\n"), /gpt-test/);
+  assert.equal(interval.mock.callCount(), 0);
+});
+
+test("shows native MCP tools without extension status and refreshes on redraw", async (t) => {
   const tools = [
     { name: "mcp__docs__read", exposure: "direct" },
     { name: "mcp__docs__search", exposure: "deferred" },
@@ -589,6 +756,7 @@ test("shows native MCP tools without extension status and refreshes on redraw", 
   const colors = new Map<string, string>();
   const theme = { ...createTheme(), fg: (color: string, text: string) => { colors.set(text, color); return text; } };
   const footer = openFooter(context, theme);
+  t.after(() => footer.dispose?.());
   assert.match(footer.render(160).join("\n"), /⇄ MCP tools 3/);
   assert.equal(colors.get("tools"), "muted", "discovery is not connection health");
   assert.equal(colors.get("3"), "text", "inventory values use the ordinary classic readout color");
@@ -601,12 +769,13 @@ test("shows native MCP tools without extension status and refreshes on redraw", 
   await commands.get("signal-footer")!("locale zh", context.ctx);
   assert.match(renderLines(context, 160).join("\n"), /🔌 MCP 工具 1/);
   const ansiFooter = openFooter(context, createTheme({ ansi: true }));
+  t.after(() => ansiFooter.dispose?.());
   for (const width of [1, 40, 76, 112, 160]) {
     for (const line of ansiFooter.render(width)) assert.ok(visibleWidth(line) <= width);
   }
 });
 
-test("styles native MCP health and its tool count in both footer themes", async () => {
+test("styles native MCP health and its tool count in both footer themes", async (t) => {
   const { handlers, commands, agentDir } = createApi(tempAgentDir(), "1.0.0", [], {
     getAllTools: () => [{ name: "mcp__docs__read" }, { name: "mcp__docs__search" }, { name: "mcp__docs__hidden", exposure: "hidden" }],
   });
@@ -618,6 +787,7 @@ test("styles native MCP health and its tool count in both footer themes", async 
     const colors = new Map<string, string>();
     const theme = { ...createTheme(), fg: (color: string, text: string) => { colors.set(text, color); return text; } };
     const footer = openFooter(context, theme);
+    t.after(() => footer.dispose?.());
     for (const [status, ratio, color, failure] of [
       ["MCP native 2/2 failed 0", "2/2", style === "classic" ? "text" : "success", ""],
       ["MCP native 1/2 failed 0", "1/2", "warning", ""],
@@ -634,6 +804,7 @@ test("styles native MCP health and its tool count in both footer themes", async 
       assert.ok(output.indexOf("LSP ✗ fixture") < output.indexOf("MCP"));
     }
     const ansiFooter = openFooter(context, createTheme({ ansi: true }));
+    t.after(() => ansiFooter.dispose?.());
     for (const width of [1, 40, 76, 112, 160]) {
       for (const line of ansiFooter.render(width)) assert.ok(visibleWidth(line) <= width);
     }
@@ -642,7 +813,7 @@ test("styles native MCP health and its tool count in both footer themes", async 
   }
 });
 
-test("prefers reported MCP connectivity over native inventories", async () => {
+test("prefers reported MCP connectivity over native inventories", async (t) => {
   let reads = 0;
   const { handlers, agentDir } = createApi(tempAgentDir(), "1.0.0", [], {
     getAllTools: () => { reads++; return [{ name: "mcp__docs__read" }]; },
@@ -652,6 +823,7 @@ test("prefers reported MCP connectivity over native inventories", async () => {
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: "MCP 1/3" });
   await startSession(handlers, context);
   const footer = openFooter(context);
+  t.after(() => footer.dispose?.());
   for (const status of ["MCP 1/3", "MCP 0/3", "MCP 0/0"]) {
     context.extensionStatuses.set("mcp", status);
     const output = footer.render(160).join("\n");
