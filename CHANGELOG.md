@@ -4,21 +4,19 @@
 
 ## Unreleased / 未发布
 
-- **会话汇总 / Session totals**：手工改写会话中任意一条已落盘 usage 后，下一次重绘即反映新总量；未改动的重绘仍复用上次结果。 / Editing any landed usage entry updates the totals on the next redraw; unchanged redraws still reuse the last result.
-
 ## 0.6.0
 
-- **库存刷新 / Inventory refresh**：状态栏启用时每秒检查公开 API 的本地内存库存，仅显示结果变化才重绘，销毁时停止。不探测服务器、不联网；库存不是健康状态，仍依赖宿主公开 API 兼容。 / While active, the footer checks public in-memory inventories once per second, redraws only when the displayed status changes, and stops on disposal. It never polls servers or the network; inventory is not health and requires compatible public host APIs.
-- **MCP 状态与外观 / MCP status and styling**：支持宿主发布的原生已连/启用比例、明确故障/待处理数量与非隐藏工具数，复用 classic/vivid 状态配色。无健康状态时回退工具/扩展注册库存：标签灰色、数值用主题读数色，不冒充连接健康。原生健康需宿主发布，本包不自动修改 CLI。 / Supports host-published native connectivity, explicit attention counts and non-hidden tools with classic/vivid colors. Inventory fallback keeps muted labels and themed values, never treating tools/registrations as health. Native health requires a host publisher; this package does not patch the CLI.
-- **实时读数 / Live readings**：`≈` 明确为可能高估或低估的近似值；变化的正 provider 用量校准在途输出，向下纠正时重置速率样本。单样本不报速率，空更新不启动首输出时钟。 / `≈` means approximation; changed positive provider usage calibrates in-flight output, resetting rate samples on downward corrections. One sample has no rate; empty updates do not start the output clock.
-- **交接与开关 / Handoff and toggles**：仅同一最终消息落盘才清在途后缀，无关 custom 条目不误清。off 清流式、速率与压缩临时状态，on 不补造漏过的读数。 / Only the same final message landing clears the pending suffix; unrelated custom entries do not. Off clears transient stream/rate/compaction state; on does not reconstruct missed readings.
-- **工作时长 / Work time**：启用时在 agent/压缩开始写不进模型上下文的工作起点，排除此前空闲；手动压缩的实时、落盘与重载一致，失败/取消释放计时。 / Work-start entries outside model context exclude prior idle time; live, landed and reloaded manual-compaction duration agree, with holds released on failure/cancellation.
-- **状态与口径 / Status and semantics**：支持紧凑 LSP 状态，已知 LSP 失败和 MCP 部分连接优先显示；文档说明原生 MCP 计数限制、会话文件/fork 范围、缓存沿用及 context/cost 精度边界。 / Supports compact LSP status and prioritizes known LSP failures and partial MCP connections; documents native MCP count limits, session-file/fork scope, carried cache ratios and context/cost precision.
-
-- **图例与帮助 / Legend and help**：图例覆盖 classic/vivid 符号和缓存未报沿用；help 补齐语言、主题与单项开关参数。双语 README 示例同步比例、工具数与故障标记，并说明 LSP 按需显示。 / The legend covers both themes and carried cache ratios; help includes locale, theme and item-toggle arguments. Bilingual README examples show connectivity, tools and attention markers, with LSP appearing on demand.
-- **稳定 / Stability**：手工编辑或坏行造出畸形会话条目（null、缺 `type`/`message` 字段）时渲染降级计数，不再抛异常。 / Malformed session entries (null, missing `type`/`message`) from hand edits or corrupt lines degrade to empty readings instead of crashing the render.
-- **上下文 / Context**：阈值色跟屏幕上的整数走。49.5% 显示成 50% 时即警告，74.5% 显示成 75% 时即错误，不再按未取整原值停在上一档。 / Threshold color follows the rounded percent on screen: 49.5% shown as 50% warns, 74.5% shown as 75% errors, instead of staying a tier behind the raw value.
-- **外观 / Appearance**：vivid 的输出图标与数值使用区别于输入的语义色，classic 不变。 / Vivid output icons and values use a semantic color distinct from input; classic is unchanged.
+- **会话汇总 / Session totals**：手工修改任意已落盘 usage 后，下次重绘更新总量。 / Edited landed usage updates totals on the next redraw.
+- **MCP / MCP**：显示宿主发布的连接与故障数；没有健康状态时只显示工具或注册数。 / Shows host-published connectivity and failures; otherwise shows tool or registration counts.
+- **刷新 / Refresh**：启用时每秒看一次本地库存，显示变化才重绘。 / Checks local inventory once a second and redraws only when it changes.
+- **读数 / Readings**：`≈` 是近似值；变化的正 output 校准在途量，单样本不报速率。 / `≈` is approximate; changed positive output calibrates in-flight tokens, and one sample has no rate.
+- **交接 / Handoff**：同一最终消息落盘才清在途后缀；off 清临时状态，on 不补造读数。 / Pending output clears only when the same final message lands; off clears it and on does not reconstruct it.
+- **时长 / Work time**：agent 与压缩开始前的空闲不计；失败或取消释放计时。 / Idle time before agent or compaction work is excluded; failure or cancellation releases the timer.
+- **状态 / Status**：支持紧凑 LSP，失败和部分连接优先显示。 / Compact LSP, with failures and partial connections shown first.
+- **图例 / Legend**：补齐两套符号、语言、主题和单项开关。 / Legend and help cover both themes, locale, theme, and item toggles.
+- **稳定 / Stability**：坏会话条目不再让渲染抛错。 / Malformed session entries no longer crash rendering.
+- **上下文 / Context**：颜色跟随四舍五入后的百分比。 / Context color follows the rounded percentage.
+- **外观 / Appearance**：vivid 的输出色与输入分开，classic 不变。 / Vivid output color differs from input; classic is unchanged.
 
 ## 0.5.0
 
