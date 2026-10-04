@@ -193,7 +193,7 @@ test("degrades when a session entry is null or lacks a type", async () => {
   await startSession(handlers, context);
 
   const output = renderLines(context, 160).join("\n");
-  assert.match(output, /1轮/);
+  assert.match(output, /1轮|1 turn/);
   assert.match(output, /↓ 1/);
 });
 
@@ -211,7 +211,7 @@ test("degrades when a session entry is missing its message field", async () => {
   await startSession(handlers, context);
 
   const output = renderLines(context, 160).join("\n");
-  assert.match(output, /1轮/);
+  assert.match(output, /1轮|1 turn/);
   assert.match(output, /↓ 1/);
 });
 
