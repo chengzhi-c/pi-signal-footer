@@ -30,7 +30,6 @@ import {
   type ContextColor,
   type Palette,
   PALETTES,
-  paintValue,
 } from "./palette.ts";
 import type { FooterSettings, FooterTheme } from "./settings.ts";
 import {
@@ -62,7 +61,7 @@ type UsageLike = NonNullable<AttributedMessage["usage"]>;
 type UsageTotals = { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
 /** 最近一次请求的 usage 快照：括号里的复用率只取它，不取生涯累计。 */
 type LastRequestSample = Pick<UsageTotals, "input" | "cacheRead" | "cacheWrite">;
-type SessionStats = { firstTs: number; lastTs: number; activeMs: number; turns: number };
+type SessionStats = { lastTs: number; activeMs: number; turns: number };
 type SessionEntries = ReturnType<ExtensionContext["sessionManager"]["getEntries"]>;
 
 /** homedir() 解析失败不能击穿渲染循环；拿不到主目录时保留完整路径。 */
@@ -89,8 +88,7 @@ function isHumanEntry(entry: SessionEntry): boolean {
 }
 
 /** 这些条目由人（或启动流程）写入，其前面的空档不是 agent 工作：切模型/改思考等级
- *  可能发生在闲置期，会话命名与标签更是纯人工动作。实测 38 个真实会话里它们吞掉
- *  约 4.9% 的计数。压缩与摘要条目不走这里——生成摘要确实是工作。 */
+ *  可能发生在闲置期，会话命名与标签同理；压缩与摘要仍计入工作。 */
 const NON_WORK_ENTRY_TYPES = new Set<string>(["model_change", "thinking_level_change", "session_info", "label"]);
 
 /** 关闭间隙的条目是否代表"人机边界"：它前面的墙钟不计入 agent 工作时长。 */
@@ -146,7 +144,7 @@ type DerivedMemo = {
 // （SDK 注释确认），同样计入会话总量。
 function computeSessionDerived(entries: SessionEntries): DerivedResult {
   const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-  const session: SessionStats = { firstTs: Number.NaN, lastTs: Number.NaN, activeMs: 0, turns: 0 };
+  const session: SessionStats = { lastTs: Number.NaN, activeMs: 0, turns: 0 };
   let lastRequest: LastRequestSample | undefined;
   let prevTs = Number.NaN;
 
@@ -169,7 +167,6 @@ function computeSessionDerived(entries: SessionEntries): DerivedResult {
     }
     const ts = Date.parse(entry.timestamp);
     if (Number.isFinite(ts)) {
-      session.firstTs = Number.isNaN(session.firstTs) ? ts : Math.min(session.firstTs, ts);
       session.lastTs = Number.isNaN(session.lastTs) ? ts : Math.max(session.lastTs, ts);
       // 活跃口径：gap 的含义由后继条目决定——user 条目只在人按下发送时落盘，
       // 它前面的空档是人类间隔（不计）；模型切换/思考等级/会话命名/标签同理（不计）；
@@ -421,20 +418,20 @@ function buildStatsLine(
   const { totals, lastRequest, session, settings, locale, lastRate, inflight, inflightExact } = view;
   const palette = PALETTES[settings.theme];
   const pipe = theme.fg(palette.chrome, " │ ");
-  const input = `${theme.fg(palette.input.icon, palette.icons.input)} ${paintValue(theme, palette.input, formatTokens(totals.input))}`;
+  const input = `${theme.fg(palette.input.icon, palette.icons.input)} ${theme.fg(palette.input.fg, formatTokens(totals.input))}`;
   // 在途估算与实时速率同源（usage 只在响应末尾落账），流式期间带 ≈ 前缀（近似值）；
   // end 已报精确 output 时读数即落盘条目将累计的精确值，估算标记只留给真估算。
   const inflightSuffix = inflight > 0
     ? theme.fg(palette.inflight, ` ${inflightExact ? "+" : "≈+"}${formatTokens(inflight)}`)
     : "";
-  const output = `${theme.fg(palette.output.icon, palette.icons.output)} ${paintValue(theme, palette.output, formatTokens(totals.output))}${inflightSuffix}`;
+  const output = `${theme.fg(palette.output.icon, palette.icons.output)} ${theme.fg(palette.output.fg, formatTokens(totals.output))}${inflightSuffix}`;
   const hitRatio = settings.showCacheRatio && lastRequest
     ? formatCacheHitRatio(lastRequest.cacheRead, lastRequest.cacheWrite, lastRequest.input)
     : undefined;
   // 括号里的复用率是"单次请求"口径，与 ↻ 的生涯累计量并排；口径解释交给图例与 README，行内不挂标签。
-  const cacheReadNum = `${paintValue(theme, palette.read, formatTokens(totals.cacheRead))}${hitRatio ? theme.fg(palette.ratio, ` (${hitRatio})`) : ""}`;
+  const cacheReadNum = `${theme.fg(palette.read.fg, formatTokens(totals.cacheRead))}${hitRatio ? theme.fg(palette.ratio, ` (${hitRatio})`) : ""}`;
   const timeParts: string[] = [];
-  if (settings.showDuration && Number.isFinite(session.firstTs) && Number.isFinite(session.lastTs)) {
+  if (settings.showDuration && Number.isFinite(session.lastTs)) {
     timeParts.push(theme.fg(palette.timeFg, formatDuration(session.activeMs)));
   }
   if (settings.showTurns && session.turns > 0) {
@@ -448,8 +445,8 @@ function buildStatsLine(
     ? `${theme.fg(palette.timeIcon, palette.icons.time)} ${timeParts.join(theme.fg(palette.chrome, " · "))}`
     : "";
   const trafficGroup = `${input} ${output}`;
-  const cacheGroup = `${theme.fg(palette.read.icon, palette.icons.read)} ${cacheReadNum} ${theme.fg(palette.write.icon, palette.icons.write)} ${paintValue(theme, palette.write, formatTokens(totals.cacheWrite))}`;
-  const cost = paintValue(theme, palette.cost, formatCost(totals.cost, palette.icons.cost));
+  const cacheGroup = `${theme.fg(palette.read.icon, palette.icons.read)} ${cacheReadNum} ${theme.fg(palette.write.icon, palette.icons.write)} ${theme.fg(palette.write.fg, formatTokens(totals.cacheWrite))}`;
+  const cost = theme.fg(palette.cost, formatCost(totals.cost, palette.icons.cost));
   return {
     stats: [trafficGroup, cacheGroup, cost, timeGroup].filter(Boolean).join(pipe),
     trafficGroup,

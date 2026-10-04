@@ -49,6 +49,7 @@ test("interpolates command subcommands and show-item tokens into help copy", () 
     }
     // 精确绑定 locale 参数段，避免 includes("en") 被 "legend" 子串意外满足
     assert.ok(usage.includes(FOOTER_LOCALES.join("|")), `${locale} usage missing locale segment`);
+    assert.match(usage, /theme \[classic\|vivid\]/, `${locale} help must show the accepted theme values`);
   }
 });
 

@@ -10,7 +10,7 @@
 - **工作时长 / Work time**：启用时在 agent/压缩开始写不进模型上下文的工作起点，排除此前空闲；手动压缩的实时、落盘与重载一致，失败/取消释放计时。 / Work-start entries outside model context exclude prior idle time; live, landed and reloaded manual-compaction duration agree, with holds released on failure/cancellation.
 - **状态与口径 / Status and semantics**：支持 pi-lens 紧凑状态，已知 LSP 失败和 MCP 部分连接优先显示；文档说明原生 MCP 计数限制、会话文件/fork 范围、缓存沿用及 context/cost 精度边界。 / Supports compact pi-lens status and prioritizes known LSP failures and partial MCP connections; documents native MCP count limits, session-file/fork scope, carried cache ratios and context/cost precision.
 
-- **图例 / Legend**：↻ 一行补上「未报沿用」语义（请求未报输入维度时括号里沿用上轮已知值），与 README 读数口径一致。 / The ↻ line now states the carry-over rule (a request reporting no input dimensions keeps the last known ratio), matching the README.
+- **图例与帮助 / Legend and help**：图例覆盖 classic/vivid 符号和缓存未报沿用；help 补齐语言、主题与单项开关参数。双语 README 示例同步比例、工具数与故障标记，并说明 LSP 按需显示。 / The legend covers both themes and carried cache ratios; help includes locale, theme and item-toggle arguments. Bilingual README examples show connectivity, tools and attention markers, with LSP appearing on demand.
 - **稳定 / Stability**：手工编辑或坏行造出畸形会话条目（null、缺 `type`/`message` 字段）时渲染降级计数，不再抛异常。 / Malformed session entries (null, missing `type`/`message`) from hand edits or corrupt lines degrade to empty readings instead of crashing the render.
 - **上下文 / Context**：阈值色跟屏幕上的整数走。49.5% 显示成 50% 时即警告，74.5% 显示成 75% 时即错误，不再按未取整原值停在上一档。 / Threshold color follows the rounded percent on screen: 49.5% shown as 50% warns, 74.5% shown as 75% errors, instead of staying a tier behind the raw value.
 - **外观 / Appearance**：vivid 的输出图标与数值使用区别于输入的语义色，classic 不变。 / Vivid output icons and values use a semantic color distinct from input; classic is unchanged.

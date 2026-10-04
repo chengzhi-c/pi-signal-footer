@@ -254,6 +254,7 @@ test("formats session duration in compact wall-clock units", () => {
   assert.equal(formatDuration(0), "0m");
   assert.equal(formatDuration(-5), "0m");
   assert.equal(formatDuration(Number.NaN), "0m");
+  assert.equal(formatDuration(Number.POSITIVE_INFINITY), "0m");
   // Sub-minute sessions are the common case for a quick question; "0m" reads
   // as "no time elapsed". Seconds are shown until the first full minute.
   assert.equal(formatDuration(59_000), "59s");
@@ -266,6 +267,7 @@ test("formats session duration in compact wall-clock units", () => {
   assert.equal(formatDuration(45 * 60_000), "45m");
   assert.equal(formatDuration(2 * 3_600_000 + 13 * 60_000), "2h13m");
   assert.equal(formatDuration(3 * 3_600_000), "3h00m");
+  assert.equal(formatDuration(26 * 3_600_000 + 5 * 60_000), "26h05m");
 });
 
 test("formats streaming speed and stays silent without data", () => {
@@ -316,18 +318,20 @@ test("keeps identity text on one plain line", () => {
   assert.equal(sanitizePlainText(" model\u001b[31m\nname\t\u0000 "), "model name");
 });
 
-test("legend explains every glyph the footer renders", () => {
-  const guide = legendLines("zh").join(" ");
-  // 与 index.ts 渲染符号同步：新增或改名符号时，同步更新图例与此清单
-  for (const glyph of ["↓", "↑", "↻", "✎", "⎔", "⇄", "◷", "⎇", "✦", "›", "·", "MCP", "LSP", "✗", "$"]) {
-    assert.ok(guide.includes(glyph), `legend missing "${glyph}"`);
+test("legend covers both themes and states the reading boundaries", () => {
+  for (const locale of ["zh", "en"] as const) {
+    const guide = legendLines(locale).join(" ");
+    for (const glyph of ["↓", "↑", "↻", "✎", "⎔", "⇄", "◷", "⎇", "✦", "›", "·", "MCP", "LSP", "✗", "$",
+      "📥", "📤", "🔄", "📝", "📊", "🔌", "⏳", "🔀", "🧠", "📁", "💬", "🚀", "🪙", "🛠️"]) {
+      assert.ok(guide.includes(glyph), `${locale} legend missing ${glyph}`);
+    }
+    assert.match(guide, /沿用|carried/);
+    assert.match(guide, /不计|excluded/);
+    assert.match(guide, /工具参数|tool args/);
+    assert.match(guide, /近似|approximate/);
+    assert.match(guide, /chunk/);
+    assert.doesNotMatch(guide, /下限|lower.bound|闲置超 2 分钟|idle beyond 2 min/);
   }
-});
-
-test("legend states that the cache ratio carries over when a request reports no input", () => {
-  // 与 README 读数口径一致：沿用是真实读数语义（绝不伪造 0.00%），图例不说用户就会误读滞后值。
-  assert.ok(legendLines("zh").join(" ").includes("沿用"), "zh legend must state the carry-over semantics");
-  assert.ok(legendLines("en").join(" ").toLowerCase().includes("carr"), "en legend must state the carry-over semantics");
 });
 
 test("legend fits pi's widget line budget in both locales", () => {

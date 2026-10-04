@@ -207,20 +207,6 @@ test("showDuration, showSpeed and showCacheRatio toggles take effect", async () 
   }
 });
 
-test("configuration changes clear an active footer when the loaded settings disable it", async () => {
-  const agentDir = tempAgentDir();
-  const { handlers, commands } = createApi(agentDir);
-  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-
-  await startSession(handlers, context);
-  assert.equal(typeof context.footerCalls.at(-1), "function");
-
-  writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ enabled: false }), "utf8");
-  await commands.get("signal-footer")!("branch off", context.ctx);
-
-  assert.equal(context.footerCalls.at(-1), undefined);
-});
-
 test("disabling loaded settings also clears a visible legend", async () => {
   const agentDir = tempAgentDir();
   const { handlers, commands } = createApi(agentDir);

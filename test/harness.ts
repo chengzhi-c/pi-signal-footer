@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createExtension } from "../index.ts";
-import { SETTINGS_FILE } from "../settings.ts";
+import { installFooter } from "../footer.ts";
+import { DEFAULT_SETTINGS, SETTINGS_FILE } from "../settings.ts";
 
 export type Handler = (...args: unknown[]) => unknown;
 export type ThemeStub = ReturnType<typeof createTheme>;
@@ -158,4 +159,15 @@ export async function setField(commands: Map<string, Handler>, ctx: TestContext,
  *  必须写进被测实例自己的 agentDir（settings 在 session_start 时从那里加载）。 */
 export function pinLocale(agentDir: string, locale: "zh" | "en"): void {
   writeFileSync(join(agentDir, SETTINGS_FILE), JSON.stringify({ locale }), "utf8");
+}
+
+export function createStreamFixture(initialNow = 0) {
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  let now = initialNow;
+  installFooter(
+    context.ctx as unknown as Parameters<typeof installFooter>[0],
+    { ...DEFAULT_SETTINGS, locale: "en" },
+    () => now,
+  );
+  return { context, session: context.ctx.sessionManager, setNow: (value: number) => { now = value; } };
 }

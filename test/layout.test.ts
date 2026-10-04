@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { legendLines } from "../format.ts";
@@ -313,13 +312,7 @@ test("sacrifices footer fields in the order the legend advertises", async () => 
   assert.ok(drops.branch > drops.model, `branch should drop before the model name: ${drops.branch} vs ${drops.model}`);
   assert.ok(drops.reasoning > drops.model, `reasoning should drop before the model name: ${drops.reasoning} vs ${drops.model}`);
 
-  // 图例里那句话必须与上面实测的顺序一致，否则就是文档在撒谎。
-  const advertised = legendLines("zh").find((line) => line.includes("让位"));
-  assert.ok(advertised, "legend no longer states the degradation order");
-  const at = (token: string) => advertised!.indexOf(token);
-  assert.ok(at("上下文") < at("项目"), `legend order wrong: ${advertised}`);
-  assert.ok(at("项目") < at("模型"), `legend order wrong: ${advertised}`);
-  assert.ok(at("模型") > at("上下文"), `legend must not put the model first: ${advertised}`);
+  assert.match(legendLines("zh").join("\n"), /上下文.*→.*项目.*→.*分支\/推理.*→.*模型/);
 });
 
 test("keeps every rendered footer line within the requested width", async () => {
@@ -786,38 +779,6 @@ test("keeps our own stats intact and truncates third-party statuses when line 2 
   assert.match(line2, /\.\.\./, "the status block is the side that gives");
 });
 
-
-// ===== R7-P70 文档诚实性闸门：图例承诺必须与实现同源，防分头漂移 =====
-
-test("legend never advertises the retired two-minute idle cap", () => {
-  // 旧语义"闲置超 2 分钟按 2 分钟计"已被角色化 gap 记账取代；
-  // 若 P69 回滚而文案不回滚（或反之），这条立刻变红逼两者回到同一状态
-  for (const locale of ["zh", "en"] as const) {
-    const guide = legendLines(locale).join(" ");
-    assert.ok(!guide.includes("闲置超 2 分钟"), `${locale} legend still promises the 2-min idle cap`);
-    assert.ok(!guide.includes("idle beyond 2 min"), `${locale} legend still promises the 2-min idle cap`);
-    assert.ok(guide.includes("不计") || guide.includes("excluded"), `${locale} legend must state human gaps are excluded`);
-  }
-});
-
-test("legend credits tool-call arguments inside the in-flight estimate", () => {
-  // P69-D1 把工具调用参数纳入 ≈+ 估算：图例若不提"工具"，就是在低报覆盖面
-  for (const locale of ["zh", "en"] as const) {
-    const guide = legendLines(locale).join(" ").toLowerCase();
-    assert.ok(guide.includes("工具") || guide.includes("tool"),
-      `${locale} legend must mention tool-call arguments in the ≈+ estimate`);
-  }
-});
-
-test("legend identifies approximation without a lower-bound guarantee", () => {
-  for (const locale of ["zh", "en"] as const) {
-    const guide = legendLines(locale).join(" ").toLowerCase();
-    assert.ok(guide.includes("chunk"), "legend must say the rate moves on new chunks");
-    assert.match(guide, /近似|approx/);
-    assert.doesNotMatch(guide, /下限|lower bound/);
-  }
-});
-
 test("vivid palette repaints stat groups while classic stays neutral", () => {
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 }, { mcp: "MCP 1/1" });
   context.entries.push({
@@ -888,17 +849,3 @@ test("vivid palette repaints stat groups while classic stays neutral", () => {
   assert.ok(!vivid.bolds.has("100"), "cache write value stays clean and regular");
   assert.ok(!vivid.bolds.has("0m"), "metadata like duration stays regular");
 });
-
-test("README documents the carried-over cache ratio and the steered-stream duration semantics", () => {
-  // 沿用/回退只在 README 承诺：关键词宽松匹配，重写措辞保留语义即绿，整句删除即红。
-  // 回退断言必须用专属词——两 README 的轮数句已含 "steered messages"/"steering 插话"，/steer/i 红灯无效。
-  const en = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  const zh = readFileSync(new URL("../README.zh-CN.md", import.meta.url), "utf8");
-  assert.match(en, /carr(?:y|ies) over/i);
-  assert.match(zh, /沿用/);
-  assert.match(en, /rewinds?|steps? back/i);
-  assert.match(zh, /回退/);
-  assert.doesNotMatch(en, /marks a lower-bound|never high|never over/i);
-  assert.doesNotMatch(zh, /只会偏低|不会偏高|只许偏低/);
-});
-

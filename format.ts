@@ -17,15 +17,15 @@ export function resolveLocale(setting: "auto" | UiLocale, detected = Intl.DateTi
 const COPY = {
   zh: {
     legend: [
-      "↓ 输入 ↑ 输出 token（流式中 ↑ 带 ≈+ 在途估算，含工具调用参数）；↻ 缓存读（括号 = 上轮请求 读÷总输入，未报沿用）；✎ 缓存写；$ 累计成本。",
-      "⎔ 上下文：百分比 + 占用条 + 已用/窗口 token；≥50% 警告，≥75% 错误，? 未知。",
-      "模型：provider › 图标 model（图标按家族匹配）；✦ 思考等级；⎇ Git 分支。",
-      "项目：完整路径（~ = 主目录）；路径后 · 跟随会话名。",
-      "◷ agent 工作时长（等你输入的空档不计；单段封顶 15 分钟）· 轮次（用户消息数）。",
-      "速率：≈ 为近似，可能高估/低估；新 chunk 到达时变化，结束时定格（tok/s）。",
-      "⇄ MCP 已连/启用；✗N 故障/待处理；工具/注册非健康。LSP ✗ 失败。",
-      "变窄时按「上下文条与数值 → 项目 → 分支/推理 → 模型名」让位。",
-      "关闭图例：/signal-footer hide；外观切换：/signal-footer theme",
+      "↓/📥 输入 ↑/📤 输出 token（≈+ 在途含工具参数）；↻/🔄 读（上轮读÷总输入，未报沿用）；✎/📝 写；$/🪙 成本。",
+      "⎔/📊 上下文：百分比、占用条、已用/窗口；≥50% 警告，≥75% 错误，? 未知。",
+      "模型：provider › 图标 model；✦/🧠 思考等级；⎇/🔀 Git 分支。",
+      "项目：完整路径（~ = 主目录）；· 会话名；vivid 用 📁。",
+      "◷/⏳ 工作时长（等输入不计，单段 15 分钟封顶）· 💬 轮次（用户消息数）。",
+      "🚀 速率（tok/s）：≈ 近似，可能高估/低估；新 chunk 更新，结束定格。",
+      "⇄/🔌 MCP 已连/启用；✗N 待处理；工具/注册非健康；🛠️ LSP ✗ 失败。",
+      "变窄时：上下文条与数值 → 项目 → 分支/推理 → 模型名。",
+      "关闭图例：/footer hide；切换外观：/footer theme（classic/vivid）。",
     ],
     mcpTools: "工具",
     mcpRegistered: "注册",
@@ -41,7 +41,7 @@ const COPY = {
     localeChanged: (locale: UiLocale) => "界面语言：" + locale,
     itemToggled: (name: string, enabled: boolean) => `${name}已${enabled ? "显示" : "隐藏"}`,
     usage: (subs: string, items: string) =>
-      `用法: /signal-footer [${subs} auto|zh|en|<项> [on|off]]；项: ${items}`,
+      `用法: /signal-footer [${subs}]；locale auto|zh|en；theme [classic|vivid]；<${items}> [on|off]`,
     itemUsage: (items: string) =>
       `用法: /signal-footer <${items}> [on|off]（省略 on|off 即切换）`,
     localeUsage: "用法: /signal-footer locale auto|zh|en",
@@ -57,15 +57,15 @@ const COPY = {
   },
   en: {
     legend: [
-      "↓ in ↑ out tokens (≈+ in-flight incl. tool-call args); ↻ cache read (parens = last read÷input, carried when unreported); ✎ write; $ cost.",
-      "⎔ context: percent + bar + used/window tokens; ≥50% warn, ≥75% err, ? unknown.",
-      "Model: provider › icon model (matched by family); ✦ thinking; ⎇ git branch.",
-      "Project: full path (~ = home); session name follows after ·.",
-      "◷ agent work time (your wait excluded; 15-min cap) · turns (user msgs).",
-      "Rate (tok/s): ≈ approximate; new chunks update it, end freezes it.",
-      "⇄ MCP connected/enabled; ✗N attention; tools/reg not health. LSP ✗ failed.",
+      "↓/📥 in ↑/📤 out (≈+ incl. tool args); ↻/🔄 read (last read÷input, carried); ✎/📝 write; $/🪙 cost.",
+      "⎔/📊 context: percent + bar + used/window; ≥50% warn, ≥75% err, ? unknown.",
+      "Model: provider › icon model; ✦/🧠 thinking; ⎇/🔀 git branch.",
+      "Project: full path (~ = home); · session name; vivid adds 📁.",
+      "◷/⏳ work time (human wait excluded; 15-min/gap cap) · 💬 turns (user msgs).",
+      "🚀 Rate (tok/s): ≈ approximate; chunks update it, end freezes it.",
+      "⇄/🔌 MCP connected/enabled; ✗N attention; tools/reg ≠ health; 🛠️ LSP ✗ failed.",
       "When narrow, yield: context bar/numbers → project → branch/thinking → model.",
-      "Hide legend: /signal-footer hide; theme: /signal-footer theme",
+      "Hide: /footer hide; theme: /footer theme (classic/vivid).",
     ],
     mcpTools: "tools",
     mcpRegistered: "reg",
@@ -81,7 +81,7 @@ const COPY = {
     localeChanged: (locale: UiLocale) => "Locale: " + locale,
     itemToggled: (name: string, enabled: boolean) => `${name} ${enabled ? "shown" : "hidden"}`,
     usage: (subs: string, items: string) =>
-      `Usage: /signal-footer [${subs} auto|zh|en|<item> [on|off]]; item: ${items}`,
+      `Usage: /signal-footer [${subs}]; locale auto|zh|en; theme [classic|vivid]; <${items}> [on|off]`,
     itemUsage: (items: string) =>
       `Usage: /signal-footer <${items}> [on|off] (omit on|off to toggle)`,
     localeUsage: "Usage: /signal-footer locale auto|zh|en",

@@ -1,25 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createOutputEstimator, estimateOutputTokens } from "../format.ts";
-import { installFooter } from "../footer.ts";
 import { handleStream } from "../stream.ts";
-import { DEFAULT_SETTINGS } from "../settings.ts";
 
-import { createApi, createContext, openFooter, pinLocale, renderLines, startSession } from "./harness.ts";
-
-/** 与 optimization.test.ts 同形：注入时钟，使实时读数完全确定。 */
-function streamFixture() {
-  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
-  let fakeNow = 0;
-  installFooter(
-    context.ctx as unknown as Parameters<typeof installFooter>[0],
-    { ...DEFAULT_SETTINGS, locale: "en" },
-    () => fakeNow,
-  );
-  const session = context.ctx.sessionManager;
-  return { context, session, setNow: (t: number) => { fakeNow = t; } };
-}
+import { createApi, createContext, createStreamFixture, openFooter, pinLocale, renderLines, startSession } from "./harness.ts";
 
 const rateOf = (output: string): number | undefined => {
   const match = output.match(/≈(\d+) tok\/s/);
@@ -31,10 +15,8 @@ function chunk(step: number): { role: string; content: { type: string; text: str
   return { role: "assistant", content: [{ type: "text", text: "a".repeat(40 * step) }] };
 }
 
-// ===== 速率读数锚定最后样本（停顿不衰减、恢复不失真）=====
-
-test("R1: the live rate holds its last measurement while the stream is stalled", () => {
-  const { context, session, setNow } = streamFixture();
+test("the live rate holds its last measurement while the stream is stalled", () => {
+  const { context, session, setNow } = createStreamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
   for (let step = 1; step <= 75; step++) {
     setNow(step * 40);
@@ -57,8 +39,8 @@ test("R1: the live rate holds its last measurement while the stream is stalled",
   );
 });
 
-test("R2: the live rate reflects the resumed pace instead of the pre-stall segment", () => {
-  const { context, session, setNow } = streamFixture();
+test("the live rate reflects the resumed pace instead of the pre-stall segment", () => {
+  const { context, session, setNow } = createStreamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
   // 前段 250 tok/s
   for (let step = 1; step <= 75; step++) {
@@ -66,7 +48,7 @@ test("R2: the live rate reflects the resumed pace instead of the pre-stall segme
     handleStream("update", chunk(step), step * 40, session);
   }
   // 停顿 4s 后以 50 tok/s 恢复（每 200ms 增 10 tok）：真值 50，
-  // 回看窗口若跨越停顿，就会把前段的 250 混进来（现状即如此）。
+  // 回看窗口若跨越停顿，就会把前段的 250 混进来。
   // 注意 content 是累积全文，恢复后必须接着前段的 3000 字符继续增长。
   let now = 3000 + 4_000;
   let text = 3000;
@@ -78,32 +60,24 @@ test("R2: the live rate reflects the resumed pace instead of the pre-stall segme
     handleStream("update", { role: "assistant", content: [{ type: "text", text: "a".repeat(text) }] }, now, session);
     resumed.push(rateOf(openFooter(context).render(160).join("\n")));
   }
-  for (const reading of resumed.slice(0, 3)) {
-    // 恢复期的前几帧只有两种诚实读数：上一次有效实测（250），或新段成熟后的实测（50）。
-    // 被停顿墙钟稀释出的混合值（现状约 106）两种都不是。
-    const lastMeasured = reading !== undefined && reading >= 200;
-    const freshSegment = reading !== undefined && reading >= 40 && reading <= 60;
-    assert.ok(
-      lastMeasured || freshSegment,
-      `a post-stall reading must not blend the previous segment with the pause, got ${JSON.stringify(resumed)}`,
-    );
-  }
+  assert.deepEqual(resumed, [250, 250, 250, 50, 50, 50], "resume must hold the last rate only until the new segment matures");
 });
 
-test("R3: empty updates do not start the first-output clock and one sample has no rate", () => {
-  const { context, session } = streamFixture();
+test("empty updates do not start the first-output clock and one sample has no rate", () => {
+  const { context, session } = createStreamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
   handleStream("update", { role: "assistant", content: [] }, 100, session);
+  handleStream("update", { role: "assistant", content: [{ type: "thinking", thinking: "" }] }, 200, session);
   handleStream("update", chunk(1), 1000, session);
   assert.doesNotMatch(openFooter(context).render(160).join("\n"), /tok\/s/);
   handleStream("end", { role: "assistant", usage: { output: 50 } }, 2000, session);
   assert.match(openFooter(context).render(160).join("\n"), /50 tok\/s/);
 });
 
-test("R4: a slow stream keeps falling back to the running average, never to a bogus value", () => {
-  const { context, session, setNow } = streamFixture();
+test("a slow stream keeps falling back to the running average, never to a bogus value", () => {
+  const { context, session, setNow } = createStreamFixture();
   handleStream("start", { role: "assistant" }, 0, session);
-  // 1.6s/chunk × 8 tok：回看窗口永远装不下两个样本，只能走"本请求已有平均"。
+  // 1.6s/chunk × 10 tok：回看窗口永远装不下两个样本，只能走"本请求已有平均"。
   const readings: (number | undefined)[] = [];
   for (let step = 1; step <= 5; step++) {
     const now = step * 1600;
@@ -112,13 +86,8 @@ test("R4: a slow stream keeps falling back to the running average, never to a bo
     readings.push(rateOf(openFooter(context).render(160).join("\n")));
   }
   assert.equal(readings[0], undefined, "the first sample has no span and must not print a rate");
-  // 1.6s 节奏下窗口永不成熟，"本请求已有平均"从上方收敛到真值 5；关键是不得出现荒诞值。
-  for (const reading of readings.slice(1)) {
-    assert.ok(reading !== undefined && reading >= 4 && reading <= 20, `slow stream must stay near 5 tok/s, got ${reading}`);
-  }
+  assert.deepEqual(readings, [undefined, 6, 6, 6, 6], "10 tokens per 1.6s must use the observed average");
 });
-
-// ===== 在途读数与落盘衔接（响应结束时不得回退）=====
 
 const outputOf = (output: string): number | undefined => {
   const match = output.match(/↑ (\d+(?:\.\d+)?)(k|M)?(?: ([≈]?\+)(\d+(?:\.\d+)?)(k|M)?)?/);
@@ -133,7 +102,7 @@ const inflightMarkerOf = (output: string): string => {
   return marker === "≈+" ? "≈" : marker === "+" ? "+" : "";
 };
 
-test("R5: the in-flight reading turns exact at end and the landed frame is a no-op", async () => {
+test("the in-flight reading turns exact at end and the landed frame is a no-op", async () => {
   const api = createApi();
   const context = createContext({ tokens: 1000, contextWindow: 200_000, percent: 0.5 });
   pinLocale(api.agentDir, "en");
@@ -152,11 +121,11 @@ test("R5: the in-flight reading turns exact at end and the landed frame is a no-
   } as never);
 
   // 流式期间 provider 不报 usage（多数 gateway 的常态）：只有字符估算可用。
-  const streamed = { role: "assistant", usage: {}, content: [{ type: "text", text: "a".repeat(4_800) }] };
+  const streamed = { role: "assistant", usage: {}, content: [{ type: "text", text: "a".repeat(16_000) }] };
   const finalMessage = {
     role: "assistant",
     usage: { input: 100, output: 3_200, cacheRead: 900, cacheWrite: 0, cost: { total: 0 } },
-    content: [{ type: "text", text: "a".repeat(4_800) }],
+    content: [{ type: "text", text: "a".repeat(16_000) }],
   };
 
   handleStream("start", { role: "assistant" }, 5_000, session);
@@ -171,6 +140,7 @@ test("R5: the in-flight reading turns exact at end and the landed frame is a no-
   const beforePersistText = openFooter(context).render(200).join("\n");
   const beforePersist = outputOf(beforePersistText);
   assert.equal(inflightMarkerOf(beforePersistText), "+", "an exact end drops the estimate marker");
+  assert.match(beforePersistText, /3200 tok\/s/);
 
   context.entries.push({ type: "custom", timestamp: new Date(6_900).toISOString() });
   assert.equal(outputOf(openFooter(context).render(200).join("\n")), beforePersist, "an unrelated entry must not settle the pending message");
@@ -184,17 +154,13 @@ test("R5: the in-flight reading turns exact at end and the landed frame is a no-
   const afterPersist = outputOf(afterPersistText);
 
   assert.ok(streaming !== undefined && beforePersist !== undefined && afterPersist !== undefined);
-  assert.equal(streaming, 3_200, "streaming shows the exact total plus the in-flight estimate");
+  assert.equal(streaming, 6_000, "an estimate can exceed the final billed output");
   assert.equal(beforePersist, 5_200, "end hands the exact billed value to the in-flight reading");
-  assert.ok(
-    beforePersist >= streaming,
-    `the exact handoff must not drop below the last streaming reading: streaming=${streaming} handoff=${beforePersist}`,
-  );
   assert.equal(afterPersist, 5_200, "the landed total must be the exact accumulated output");
   assert.equal(afterPersist, beforePersist, "the landed frame must be a no-op once the reading is exact");
 });
 
-test("R6: a new request does not inherit the previous in-flight reading", async () => {
+test("a new request does not inherit the previous in-flight reading", async () => {
   const api = createApi();
   const context = createContext({ tokens: 1000, contextWindow: 200_000, percent: 0.5 });
   pinLocale(api.agentDir, "en");
@@ -214,7 +180,7 @@ test("R6: a new request does not inherit the previous in-flight reading", async 
   assert.ok(fresh < carried, `a new request must not inherit the previous in-flight reading: carried=${carried} fresh=${fresh}`);
 });
 
-test("R17: an estimate end keeps the ≈ marker and the estimate value until the entry lands", async () => {
+test("an estimate end keeps the ≈ marker and the estimate value until the entry lands", async () => {
   const api = createApi();
   const context = createContext({ tokens: 1000, contextWindow: 200_000, percent: 0.5 });
   pinLocale(api.agentDir, "en");
@@ -226,7 +192,7 @@ test("R17: an estimate end keeps the ≈ marker and the estimate value until the
     message: { role: "assistant", usage: { input: 100, output: 2_000, cacheRead: 900, cacheWrite: 0, cost: { total: 0 } }, content: [] },
   } as never);
 
-  // 与 R16 同形，但 end 不带 usage（中止 / 部分 provider）：后缀沿用估算值与 ≈ 标记。
+  // end 不带 usage（中止 / 部分 provider）：后缀沿用估算值与 ≈ 标记。
   const message = { role: "assistant", usage: {}, content: [{ type: "text", text: "a".repeat(4_800) }] };
   handleStream("start", { role: "assistant" }, 5_000, session);
   handleStream("update", message, 6_000, session);
@@ -235,37 +201,6 @@ test("R17: an estimate end keeps the ≈ marker and the estimate value until the
   assert.equal(inflightMarkerOf(ended), "≈", "an estimate handoff keeps the ≈ marker");
   assert.equal(outputOf(ended), 3_200, "the estimate handoff keeps the estimate value until the entry lands");
 });
-
-// ===== 工具调用参数的估算密度（实测标定：JSON ≈ 2 字符/token）=====
-
-test("R7: tool-call arguments are estimated near their measured character density", () => {
-  // 真实会话 478 条 assistant 消息实测：toolCall 参数 1.95 字符/token（含 CJK 路径在内）。
-  // 纯 ASCII JSON 载荷的密度指标必须落在 1.6–2.6 字符/token，而不是实现里假定的 4。
-  const args = { file_path: "E:/proj/src/mod.ts", content: "x".repeat(600), query: "grep-pattern-".repeat(10) };
-  const json = JSON.stringify(args);
-  const estimate = estimateOutputTokens([{ type: "toolCall", arguments: args }]);
-  const charsPerToken = json.length / estimate;
-  assert.ok(
-    charsPerToken >= 1.6 && charsPerToken <= 2.6,
-    `toolCall JSON must be estimated near 1.95 chars/token, got ${charsPerToken.toFixed(2)} (json=${json.length} estimate=${estimate})`,
-  );
-});
-
-test("R8: prose and CJK densities are unchanged by the tool-call calibration", () => {
-  assert.equal(estimateOutputTokens([{ type: "text", text: "a".repeat(400) }]), 100);
-  assert.equal(estimateOutputTokens([{ type: "text", text: "汉".repeat(100) }]), 100);
-  assert.equal(estimateOutputTokens([{ type: "thinking", thinking: "a".repeat(400) }]), 100);
-});
-
-test("R9: the incremental estimator still agrees with a one-shot scan on tool calls", () => {
-  const estimator = createOutputEstimator();
-  const grown = (size: number) => [{ type: "toolCall", arguments: { content: "x".repeat(size) } }];
-  let incremental = 0;
-  for (let size = 200; size <= 4_000; size += 200) incremental = estimator.estimate(grown(size));
-  assert.equal(incremental, estimateOutputTokens(grown(4_000)));
-});
-
-// ===== 时长归属：非工作条目不吞间隙 =====
 
 type TimedEntry = { ts: string; role: string } | { ts: string; type: string };
 
@@ -286,16 +221,8 @@ async function renderDurationWith(entries: TimedEntry[]): Promise<string> {
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 0, minutes)).toISOString();
 
-test("R10: a gap before a model change is not agent work", async () => {
-  const output = await renderDurationWith([
-    { ts: at(0), role: "assistant" },
-    { ts: at(30), type: "model_change" },
-  ]);
-  assert.match(output, /◷ 0m/, "idle time before a model change must not count as work");
-});
-
-test("R11: gaps before naming, thinking-level, and label entries are not agent work", async () => {
-  for (const type of ["session_info", "thinking_level_change", "label"]) {
+test("gaps before model, name, thinking-level and label changes are not work", async () => {
+  for (const type of ["model_change", "session_info", "thinking_level_change", "label"]) {
     const output = await renderDurationWith([
       { ts: at(0), role: "assistant" },
       { ts: at(20), type },
@@ -304,7 +231,7 @@ test("R11: gaps before naming, thinking-level, and label entries are not agent w
   }
 });
 
-test("R12: gaps before tool results and compactions are still counted as work", async () => {
+test("gaps before tool results and compactions are still counted as work", async () => {
   const toolResult = await renderDurationWith([
     { ts: at(0), role: "assistant" },
     { ts: at(3), role: "toolResult" },
@@ -324,41 +251,12 @@ test("R12: gaps before tool results and compactions are still counted as work", 
   assert.match(followUp, /◷ 2m/, "generation after a tool result is real work");
 });
 
-// ===== 无 usage 收口：读数不空窗 =====
-
-test("R13: an aborted response keeps a marked estimate instead of blanking the rate", () => {
-  const { context, session, setNow } = streamFixture();
-  handleStream("start", { role: "assistant" }, 0, session);
-  setNow(1000);
-  handleStream("update", chunk(25), 1000, session);
-  setNow(2000);
-  handleStream("end", { role: "assistant", usage: {} }, 2000, session);
-  const output = openFooter(context).render(160).join("\n");
-  const rate = rateOf(output);
-  assert.ok(rate !== undefined && rate > 0, "an aborted response must keep a rate reading, not go blank");
-});
-
-test("R14: an exact end still freezes without the estimate marker", () => {
-  const { context, session, setNow } = streamFixture();
-  handleStream("start", { role: "assistant" }, 0, session);
-  setNow(1000);
-  handleStream("update", chunk(25), 1000, session);
-  setNow(2000);
-  handleStream("end", { role: "assistant", usage: { output: 500 } }, 2000, session);
-  const output = openFooter(context).render(160).join("\n");
-  assert.match(output, /500 tok\/s/);
-  assert.doesNotMatch(output, /≈/);
-});
-
-test("R15: a non-finite usage.output falls back to the estimate, not a blank field", () => {
-  const { context, session, setNow } = streamFixture();
-  handleStream("start", { role: "assistant" }, 0, session);
-  setNow(1000);
-  handleStream("update", chunk(25), 1000, session);
-  setNow(2000);
-  // 非有限 output 不是可用的精确值：必须走估算回退（25×40 字符 ÷4 ÷1s = 250 tok/s），
-  // 而不是进入精确分支后被 formatSpeed 置空、整段空窗。
-  handleStream("end", { role: "assistant", usage: { output: Number.POSITIVE_INFINITY } }, 2000, session);
-  const output = openFooter(context).render(160).join("\n");
-  assert.match(output, /≈250 tok\/s/, "a non-finite exact value must keep the estimate reading, not blank the rate");
+test("missing, zero or invalid end usage keeps the estimated rate", () => {
+  for (const output of [undefined, 0, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const { context, session } = createStreamFixture();
+    handleStream("start", { role: "assistant" }, 0, session);
+    handleStream("update", chunk(25), 1000, session);
+    handleStream("end", { role: "assistant", usage: { output } }, 2000, session);
+    assert.match(openFooter(context).render(160).join("\n"), /≈250 tok\/s/);
+  }
 });

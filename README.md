@@ -2,20 +2,22 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A readable status footer for [Pi Coding Agent](https://github.com/earendil-works/pi-mono): model, tokens, cache, cost, context bar, streaming rate, and MCP/LSP status.
+A readable status footer for [Pi Coding Agent](https://github.com/earendil-works/pi): model, tokens, cache, cost, context bar, streaming rate, and MCP/LSP status.
+
+Text examples below use a 160-column terminal. Colors follow the host theme, and narrower terminals reflow the layout. LSP appears on demand and is hidden without an active or failed status.
 
 **classic** (default)
 
 ```text
-C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main   ⎔ 12% [━━─────────────────] 36k/300k
-↓ 220 ↑ 32k │ ↻ 5.1M (97.35%) ✎ 139k │ $0.087 │ ◷ 2h25m · 1 turn · 45 tok/s                                       LSP typescript · ⇄ MCP 1/1
+C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main                      ⎔ 12% [━━──────────────────] 36k/300k
+↓ 220 ↑ 5.4k │ ↻ 51k (96.92%) ✎ 1.4k │ $0.087 │ ◷ 2m · 1 turn · 45 tok/s                                                                     ⇄ MCP 2/2 · tools 2
 ```
 
 **vivid** (`/footer theme`)
 
 ```text
-📁 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › 🐳 deepseek-v4-flash-0731 │ 🧠 max │ 🔀 main   📊 12% [━───────────] 36k/300k
-📥 220 📤 32k │ 🔄 5.1M (97.35%) 📝 139k │ 🪙 0.087 │ ⏳ 2h25m · 💬 1 turn · 🚀 45 tok/s                      🛠️ LSP typescript · 🔌 MCP 1/1
+📁 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › 🐳 deepseek-v4-flash-0731 │ 🧠 max │ 🔀 main               📊 12% [━━──────────────────] 36k/300k
+📥 220 📤 5.4k │ 🔄 51k (96.92%) 📝 1.4k │ 🪙 0.087 │ ⏳ 2m · 💬 1 turn · 🚀 45 tok/s                                                       🔌 MCP 2/2 · tools 2
 ```
 
 Requires Pi Coding Agent >=0.84.4. Older hosts keep the native footer.
@@ -72,7 +74,7 @@ Settings live in `pi-signal-footer.json` under Pi's agent directory (usually `~/
                             show/hide one item (omit on|off to toggle)
 /footer status              show the current settings
 /footer locale auto|zh|en   set the UI language
-/footer theme [vivid|classic]
+/footer theme [classic|vivid]
                             switch theme (omit to toggle)
 ```
 
@@ -82,11 +84,20 @@ Settings live in `pi-signal-footer.json` under Pi's agent directory (usually `~/
 
 This footer reads public extension statuses and MCP tool/registration inventories, not private connection state. Known LSP failures come first, then explicitly failed or partially connected MCP servers, then normal/unknown statuses in stable key order. Unknown text keeps its original colors. Zero MCP connections can mean idle lazy connections, not failure.
 
-- LSP: pi-lens must publish `pi-lens-lsp`. Full (`LSP Active: …` / `LSP Failed: …`) and compact (`LSP ✓` / `LSP ✗`) forms are supported; `LSP Inactive` is intentionally hidden. Check `/lens-health` and `/lens-tools`, and whether `lens-hide-lsp-status` is enabled. Widen the terminal to rule out clipping.
+Status examples: explicit MCP attention states color the ratio and `✗N` red; LSP failures are also red.
+
+| State | classic | vivid |
+| --- | --- | --- |
+| MCP needs attention | `⇄ MCP 1/2 ✗1 · tools 2` | `🔌 MCP 1/2 ✗1 · tools 2` |
+| Tool inventory only | `⇄ MCP tools 2` | `🔌 MCP tools 2` |
+| Active LSP | `⇄ MCP 2/2 · tools 2 · LSP typescript` | `🔌 MCP 2/2 · tools 2 · 🛠️ LSP typescript` |
+| Failed LSP (shown first) | `LSP ✗ typescript · ⇄ MCP 2/2 · tools 2` | `🛠️ LSP ✗ typescript · 🔌 MCP 2/2 · tools 2` |
+
+- LSP: pi-lens must publish `pi-lens-lsp`. Full (`LSP Active: …` / `LSP Failed: …`) and compact (`LSP ✓` / `LSP ✗`) forms are supported; `LSP Inactive` or an unpublished status is normally hidden. Absence alone does not establish server health. Use `/lens-health` for actual status, `/lens-tools` for available tools, and check whether `lens-hide-lsp-status` is enabled. If an active/failed status is still missing, widen the terminal to rule out clipping.
 - MCP health: a published connected/enabled status takes priority. The native status contract `MCP native C/E failed F` renders as `MCP C/E`, with a red `✗F` when servers explicitly need attention (failed, disconnected, or awaiting authentication). Full connections use classic text / vivid success color; partial connections warn; zero without an explicit failure stays muted. Native health can include `· tools N` for discovered non-hidden tools. Existing pi-mcp-adapter statuses retain their behavior, including hiding `0/0` without inventory fallback.
 - MCP inventory: without a recognized health status, `MCP tools N` shows public `getAllTools()` entries with native `mcp__` names or namespaces (direct/codemode/deferred; hidden excluded). If none are found, `MCP reg N` shows **extension registrations only** from optional `getMcpServers()`, not the full native `mcp.json` list. Labels stay muted; numbers use the theme's ordinary readout color. Inventories are **not connection health counts**. They refresh on redraw without polling; missing/unavailable APIs do not fabricate a zero.
 
-Stock Pi CLI 1.0.0 does not publish native health to the footer. The local CLI verification used a backed-up host-side patch at its existing MCP change notification in the executing bundle chunk; changing only the standalone SDK module is insufficient. **This package does not patch the host.** After a host change, restart the CLI (reloading the footer alone is insufficient); npm updates may overwrite the patch. Without a publisher, inventory fallback remains available, and a config-only server may have no chip before discovery. Inspect `/mcp` for server details and widen the terminal to rule out clipping; do not install a duplicate adapter just for display.
+The verified stock Pi CLI versions 1.0.0 and 1.0.1 do not publish complete native health to the footer. Local CLI verification used a separately backed-up host-side patch for each version at its existing MCP change notification in the executing bundle chunk; changing only the standalone SDK module is insufficient. **This package does not patch the host.** After a host change, restart the CLI (reloading the footer alone is insufficient); npm updates may overwrite the patch. A separate local manual recovery script locates the executing chunk and checks the version, backup and edit anchors. It is not shipped in this package, does not run automatically and does not guarantee compatibility with future versions. Without a publisher, inventory fallback remains available, and a config-only server may have no chip before discovery. Inspect `/mcp` for server details and widen the terminal to rule out clipping; do not install a duplicate adapter just for display.
 
 ## Development checks
 
