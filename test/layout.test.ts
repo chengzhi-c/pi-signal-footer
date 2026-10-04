@@ -142,6 +142,28 @@ test("refreshes usage totals when a non-final entry is updated in place", async 
   assert.match(after, /↓ 2\.0k/);
 });
 
+test("refreshes usage totals when a middle entry is updated in place", async () => {
+  const { handlers } = createApi();
+  const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });
+  context.entries.push(
+    { type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: { role: "assistant", usage: { input: 1 } } },
+    { type: "message", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "assistant", usage: { input: 3 } } },
+    { type: "message", timestamp: "2026-01-01T00:00:02.000Z", message: { role: "assistant", usage: { input: 5 } } },
+  );
+  await startSession(handlers, context);
+
+  const footer = openFooter(context);
+  const before = footer.render(120).join("\n");
+  const middle = context.entries[1];
+  assert.ok(middle?.message?.usage);
+  middle.message.usage.input = 2_000;
+  const after = footer.render(120).join("\n");
+  footer.dispose?.();
+
+  assert.match(before, /↓ 9\b/);
+  assert.match(after, /↓ 2\.0k/);
+});
+
 test("ignores malformed usage without poisoning later valid totals", async () => {
   const { handlers } = createApi();
   const context = createContext({ tokens: 0, contextWindow: 1000, percent: 0 });

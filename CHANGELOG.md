@@ -4,6 +4,8 @@
 
 ## Unreleased / 未发布
 
+- **会话汇总 / Session totals**：手工改写会话中任意一条已落盘 usage 后，下一次重绘即反映新总量；未改动的重绘仍复用上次结果。 / Editing any landed usage entry updates the totals on the next redraw; unchanged redraws still reuse the last result.
+
 ## 0.6.0
 
 - **库存刷新 / Inventory refresh**：状态栏启用时每秒检查公开 API 的本地内存库存，仅显示结果变化才重绘，销毁时停止。不探测服务器、不联网；库存不是健康状态，仍依赖宿主公开 API 兼容。 / While active, the footer checks public in-memory inventories once per second, redraws only when the displayed status changes, and stops on disposal. It never polls servers or the network; inventory is not health and requires compatible public host APIs.

@@ -30,6 +30,7 @@ test("ships the runtime modules and both READMEs", () => {
     "footer.ts",
     "palette.ts",
     "stream.ts",
+    "session.ts",
   ]);
 });
 
