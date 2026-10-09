@@ -4,6 +4,8 @@
 
 ## Unreleased / 未发布
 
+## 0.6.1
+
 - **MCP 读数 / MCP reading**：宿主 1.0 起不再发布已连/启用状态，图例与文档改为说明当前只显示工具数；宿主恢复发布后自动恢复比例。 / Hosts from 1.0 no longer publish connected/enabled, so the legend and docs now state that only the tool count shows; the ratio returns when a host publishes it again.
 
 ## 0.6.0
