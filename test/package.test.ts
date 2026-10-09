@@ -34,6 +34,16 @@ test("ships the runtime modules and both READMEs", () => {
   ]);
 });
 
+test("keeps the TypeScript project typechecking every published module", () => {
+  // 新模块漏进 tsconfig include，typecheck 会静默跳过它——和漏进发布清单一样是漂移
+  const tsconfig = JSON.parse(readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8")) as { include?: string[] };
+  const published = manifest.files?.filter((entry) => entry.endsWith(".ts")) ?? [];
+  assert.ok(published.length > 0);
+  for (const module of published) {
+    assert.ok(tsconfig.include?.includes(module), `tsconfig must typecheck published module ${module}`);
+  }
+});
+
 test("keeps the runtime host floor, peer floor, and READMEs aligned", () => {
   assert.equal(manifest.peerDependencies?.["@earendil-works/pi-coding-agent"], ">=" + MIN_HOST_VERSION);
   assert.equal(manifest.peerDependencies?.["@earendil-works/pi-tui"], ">=" + MIN_HOST_VERSION);
