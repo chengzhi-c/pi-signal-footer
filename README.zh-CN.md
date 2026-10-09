@@ -10,14 +10,14 @@
 
 ```text
 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main                      ⎔ 12% [━━──────────────────] 36k/300k
-↓ 220 ↑ 5.4k │ ↻ 51k (96.92%) ✎ 1.4k │ $0.087 │ ◷ 2m · 1轮 · 45 tok/s                                                                         ⇄ MCP 2/2 · 工具 2
+↓ 220 ↑ 5.4k │ ↻ 51k (96.92%) ✎ 1.4k │ $0.087 │ ◷ 2m · 1轮 · 45 tok/s                                                                         ⇄ MCP 工具 2
 ```
 
 **vivid**（`/footer theme`）
 
 ```text
 📁 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › 🐳 deepseek-v4-flash-0731 │ 🧠 max │ 🔀 main               📊 12% [━━──────────────────] 36k/300k
-📥 220 📤 5.4k │ 🔄 51k (96.92%) 📝 1.4k │ 🪙 0.087 │ ⏳ 2m · 💬 1轮 · 🚀 45 tok/s                                                           🔌 MCP 2/2 · 工具 2
+📥 220 📤 5.4k │ 🔄 51k (96.92%) 📝 1.4k │ 🪙 0.087 │ ⏳ 2m · 💬 1轮 · 🚀 45 tok/s                                                           🔌 MCP 工具 2
 ```
 
 需要 Pi Coding Agent >=0.84.4，更旧的宿主保留原生状态栏。
@@ -90,11 +90,11 @@ pi install npm:pi-signal-footer
 | --- | --- | --- |
 | MCP 明确故障/待处理 | `⇄ MCP 1/2 ✗1 · 工具 2` | `🔌 MCP 1/2 ✗1 · 工具 2` |
 | 只有工具库存 | `⇄ MCP 工具 2` | `🔌 MCP 工具 2` |
-| LSP 活动 | `⇄ MCP 2/2 · 工具 2 · LSP typescript` | `🔌 MCP 2/2 · 工具 2 · 🛠️ LSP typescript` |
-| LSP 失败（优先显示） | `LSP ✗ typescript · ⇄ MCP 2/2 · 工具 2` | `🛠️ LSP ✗ typescript · 🔌 MCP 2/2 · 工具 2` |
+| LSP 活动 | `⇄ MCP 工具 2 · LSP typescript` | `🔌 MCP 工具 2 · 🛠️ LSP typescript` |
+| LSP 失败（优先显示） | `LSP ✗ typescript · ⇄ MCP 工具 2` | `🛠️ LSP ✗ typescript · 🔌 MCP 工具 2` |
 
 - LSP：只呈现已发布的活动或失败状态，支持完整格式（`LSP Active: …` / `LSP Failed: …`）与紧凑格式（`LSP ✓` / `LSP ✗`）。失败优先显示；`LSP Inactive` 或没有发布状态时隐藏。不显示 LSP 本身不能判断服务好坏；若已发布的活动/失败状态仍不可见，可加宽终端排除截断。
-- MCP 健康：优先采用宿主发布的已连/启用状态。原生契约 `MCP native C/E failed F` 显示为 `MCP C/E`；明确需要处理的服务器（失败、断开或待认证）用红色 `✗F` 标记。全连用 classic 文本色 / vivid 成功色，部分连接用警告色，没有明确故障的零连接仍为灰色。原生健康后可附 `· 工具 N` 非隐藏工具数。也支持紧凑比例状态；识别到 `MCP 0/0` 时隐藏且不回退库存。
+- MCP 健康：优先采用宿主发布的已连/启用状态。原生契约 `MCP native C/E failed F` 显示为 `MCP C/E`；明确需要处理的服务器（失败、断开或待认证）用红色 `✗F` 标记。全连用 classic 文本色 / vivid 成功色，部分连接用警告色，没有明确故障的零连接仍为灰色。原生健康后可附 `· 工具 N` 非隐藏工具数。也支持紧凑比例状态；识别到 `MCP 0/0` 时隐藏且不回退库存。**Pi 1.0 及以后的宿主不再发布已连/启用状态**，因此当前宿主只显示工具数，无法显示比例。
 - MCP 库存：没有可识别健康状态时，`MCP 工具 N` 显示公开 `getAllTools()` 的原生 `mcp__` 名称或命名空间工具（含 direct/codemode/deferred，排除 hidden）。未发现工具时，`MCP 注册 N` 显示可选 `getMcpServers()` 的**扩展注册项**，不代表原生 `mcp.json` 的完整配置。标签保持灰色，数字采用主题普通读数色，**库存不是连接健康计数**。状态栏启用时每秒检查一次公开 API 的本地内存库存，仅显示结果变化才请求重绘，组件销毁即停止。不探测服务器、不联网；API 缺失或不可用时不伪造零值。
 
 原生健康依赖宿主发布受支持的状态；服务器配置和工具发现本身不能证明连接健康。**本包只读取状态，不修改宿主、不创建连接。** 插件已加载且宿主公开库存 API 兼容时，没有健康发布源也能更新库存，但不保证任意未来宿主版本兼容。配置中的服务在工具发现前可能没有状态项。用宿主的 `/mcp` 命令查服务器详情，可加宽终端排除截断。

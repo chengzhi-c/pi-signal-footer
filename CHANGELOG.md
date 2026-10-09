@@ -4,10 +4,12 @@
 
 ## Unreleased / 未发布
 
+- **MCP 读数 / MCP reading**：宿主 1.0 起不再发布已连/启用状态，图例与文档改为说明当前只显示工具数；宿主恢复发布后自动恢复比例。 / Hosts from 1.0 no longer publish connected/enabled, so the legend and docs now state that only the tool count shows; the ratio returns when a host publishes it again.
+
 ## 0.6.0
 
 - **会话汇总 / Session totals**：手工修改任意已落盘 usage 后，下次重绘更新总量。 / Edited landed usage updates totals on the next redraw.
-- **MCP / MCP**：显示宿主发布的连接与故障数；没有健康状态时只显示工具或注册数。 / Shows host-published connectivity and failures; otherwise shows tool or registration counts.
+- **MCP / MCP**：宿主发布连接与故障数时显示比例；宿主不再发布时只显示工具或注册数。 / Shows connectivity and failures when the host publishes them; otherwise shows tool or registration counts.
 - **刷新 / Refresh**：启用时每秒看一次本地库存，显示变化才重绘。 / Checks local inventory once a second and redraws only when it changes.
 - **读数 / Readings**：`≈` 是近似值；变化的正 output 校准在途量，单样本不报速率。 / `≈` is approximate; changed positive output calibrates in-flight tokens, and one sample has no rate.
 - **交接 / Handoff**：同一最终消息落盘才清在途后缀；off 清临时状态，on 不补造读数。 / Pending output clears only when the same final message lands; off clears it and on does not reconstruct it.

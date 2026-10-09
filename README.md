@@ -10,14 +10,14 @@ Text examples below use a 160-column terminal. Colors follow the host theme, and
 
 ```text
 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › ◎ deepseek-v4-flash-0731 │ ✦ max │ ⎇ main                      ⎔ 12% [━━──────────────────] 36k/300k
-↓ 220 ↑ 5.4k │ ↻ 51k (96.92%) ✎ 1.4k │ $0.087 │ ◷ 2m · 1 turn · 45 tok/s                                                                     ⇄ MCP 2/2 · tools 2
+↓ 220 ↑ 5.4k │ ↻ 51k (96.92%) ✎ 1.4k │ $0.087 │ ◷ 2m · 1 turn · 45 tok/s                                                                     ⇄ MCP tools 2
 ```
 
 **vivid** (`/footer theme`)
 
 ```text
 📁 C:/Users/dev/agent-demo · fix-context-bar  │  opencode-go › 🐳 deepseek-v4-flash-0731 │ 🧠 max │ 🔀 main               📊 12% [━━──────────────────] 36k/300k
-📥 220 📤 5.4k │ 🔄 51k (96.92%) 📝 1.4k │ 🪙 0.087 │ ⏳ 2m · 💬 1 turn · 🚀 45 tok/s                                                       🔌 MCP 2/2 · tools 2
+📥 220 📤 5.4k │ 🔄 51k (96.92%) 📝 1.4k │ 🪙 0.087 │ ⏳ 2m · 💬 1 turn · 🚀 45 tok/s                                                       🔌 MCP tools 2
 ```
 
 Requires Pi Coding Agent >=0.84.4. Older hosts keep the native footer.
@@ -90,11 +90,11 @@ Status examples: explicit MCP attention states color the ratio and `✗N` red; L
 | --- | --- | --- |
 | MCP needs attention | `⇄ MCP 1/2 ✗1 · tools 2` | `🔌 MCP 1/2 ✗1 · tools 2` |
 | Tool inventory only | `⇄ MCP tools 2` | `🔌 MCP tools 2` |
-| Active LSP | `⇄ MCP 2/2 · tools 2 · LSP typescript` | `🔌 MCP 2/2 · tools 2 · 🛠️ LSP typescript` |
-| Failed LSP (shown first) | `LSP ✗ typescript · ⇄ MCP 2/2 · tools 2` | `🛠️ LSP ✗ typescript · 🔌 MCP 2/2 · tools 2` |
+| Active LSP | `⇄ MCP tools 2 · LSP typescript` | `🔌 MCP tools 2 · 🛠️ LSP typescript` |
+| Failed LSP (shown first) | `LSP ✗ typescript · ⇄ MCP tools 2` | `🛠️ LSP ✗ typescript · 🔌 MCP tools 2` |
 
 - LSP: the footer displays published active or failed statuses in full (`LSP Active: …` / `LSP Failed: …`) or compact (`LSP ✓` / `LSP ✗`) form. Failures take priority; `LSP Inactive` or an unpublished status is hidden. Absence alone does not establish server health. If a published active/failed status is missing, widen the terminal to rule out clipping.
-- MCP health: a published connected/enabled status takes priority. The native status contract `MCP native C/E failed F` renders as `MCP C/E`, with a red `✗F` when servers explicitly need attention (failed, disconnected, or awaiting authentication). Full connections use classic text / vivid success color; partial connections warn; zero without an explicit failure stays muted. Native health can include `· tools N` for discovered non-hidden tools. Compact ratio statuses are also supported; recognized `MCP 0/0` is hidden and suppresses inventory fallback.
+- MCP health: a published connected/enabled status takes priority. The native status contract `MCP native C/E failed F` renders as `MCP C/E`, with a red `✗F` when servers explicitly need attention (failed, disconnected, or awaiting authentication). Full connections use classic text / vivid success color; partial connections warn; zero without an explicit failure stays muted. Native health can include `· tools N` for discovered non-hidden tools. Compact ratio statuses are also supported; recognized `MCP 0/0` is hidden and suppresses inventory fallback. **Pi hosts from 1.0 on no longer publish a connected/enabled status**, so current hosts show only the tool count and the ratio cannot be shown.
 - MCP inventory: without a recognized health status, `MCP tools N` shows public `getAllTools()` entries with native `mcp__` names or namespaces (direct/codemode/deferred; hidden excluded). If none are found, `MCP reg N` shows **extension registrations only** from optional `getMcpServers()`, not the full native `mcp.json` list. Labels stay muted; numbers use the theme's ordinary readout color. Inventories are **not connection health counts**. While this footer is active, public in-memory inventories are checked once per second; only a changed displayed status requests a redraw, and disposing the footer stops the check. No servers or network are polled; missing/unavailable APIs do not fabricate a zero.
 
 Native health requires the host to publish a supported status; server configuration and tool discovery alone do not establish health. **This package only reads status; it does not patch the host or create connections.** Inventory can update without a health publisher when the extension is loaded and the host provides compatible public inventory APIs; this is not a guarantee for every future host version. A config-only server may have no indicator before discovery. Use the host’s `/mcp` command for server details and widen the terminal to rule out clipping.
